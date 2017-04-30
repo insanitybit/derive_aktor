@@ -74,14 +74,21 @@ pub fn print_ast(args: TokenStream, input: TokenStream) -> TokenStream {
                     data: variant_data,
                     discriminant: None
                 };
+                variants.push(variant);
 
-                println!("{:#?}", variant);
+                //                println!("{:#?}", variant);
             }
         }
 
-        let mut message_enum = syn::ItemKind::Enum(variants, generics);
+        let message_enum = syn::ItemKind::Enum(variants, generics);
+        let message_enum = syn::Item {
+            ident: syn::Ident::new(message_name),
+            vis: syn::Visibility::Public,
+            attrs: vec![],
+            node: message_enum,
+        };
+        println!("{:#?}", message_enum);
     }
-    //    println!("{:#?}", ast);
 
 
     //
