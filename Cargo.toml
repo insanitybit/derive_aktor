@@ -1,0 +1,15 @@
+[package]
+name = "derive-aktor"
+version = "0.1.0"
+authors = ["insanitybit <insanitybit@gmail.com>"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+quote = "*"
+two-lock-queue = "*"
+
+[dependencies.syn]
+version = "*"
+features = ['full']
