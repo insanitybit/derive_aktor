@@ -96,6 +96,21 @@ impl PrintLogger {
         }
     }
 }
-```
+
+fn main() {
+    let system = ThreadPoolExecutor::with_thread_count(2).unwrap();
+    let logger = PrintLogger{};
+
+    let log_actor = PrintLoggerActor::new(system.handle(), logger);
+
+    // These two functions return immediately
+    // None of our written code had to use threads or fibers or futures or anything,
+    // concurrency for free.
+    
+    log_actor.info("info log");
+    log_actor.error("error!!");
+
+    system.run();
+}```
 
 You would then generate FooActor's, rather than Foo's, but you would work with a very similar interface.
