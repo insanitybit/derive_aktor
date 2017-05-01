@@ -9,7 +9,14 @@ Essentially, the goal is to allow you to write simple, synchronous rust structs 
 version of that struct. The Actor will handle dispatching events to your underlying, synchronous code. And this will all happen
 using strongly typed, compile time generated interfaces.
 
-For example:
+# Goals
+    * Generate enum from impl function types (Done)
+    * Generate Actor structure (In Progress)
+    * Generate Actor Impl
+    * Generate 'route_message' impl
+    * Actors from Traits
+
+When this crate is finished, you will be able to write the following (at minimum):
 
 
 ```rust
