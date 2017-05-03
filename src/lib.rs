@@ -30,6 +30,42 @@ pub fn hello_world(input: TokenStream) -> TokenStream {
 pub fn print_ast(args: TokenStream, input: TokenStream) -> TokenStream {
     let source = input.to_string();
 
+    // Generate enum for communicating with Actor
+    let actor_message = gen_message(source.clone());
+
+    // The actor Struct will take a type Foo and become an ActorFoo. It will have an impl with a
+    // 'new' that takes a Foo and returns an ActorFoo. It will hand that Actor to a thread/ fiber,
+    // It will also hand a receiver to the fiber. The fiber will then repeatedly call 'on_message'
+    // on the Foo, handing it messages off of the queue.
+    let actor_struct = gen_actor_struct(source.clone());
+    args
+}
+
+fn gen_actor_struct(source: String) -> syn::Item {
+    if let syn::ItemKind::Impl(unsafety, polarity, generics, path, ty, items) = syn::parse_item(&source).unwrap().node {
+        let (actor_name, msg_name) = if let syn::Ty::Path(_, path) = *ty {
+            (format!("{}Actor", path.segments[0].ident.as_ref()), format!("{}Message", path.segments[0].ident.as_ref()))
+        } else {
+            panic!("Could not find impl ident");
+        };
+
+        let actor_struct = quote! {
+            struct #actor_name {
+                sender: Sender<#msg_name>,
+                receiver: Receiver<#msg_name>,
+                id: String,
+            }
+        }.as_str().to_owned();
+        println!("{}", actor_struct);
+        syn::parse(&actor_struct).unwrap()
+
+        unimplemented!()
+    } else {
+        panic!("Actor derive only owrks on impl blocks")
+    }
+}
+
+fn gen_message(source: String) -> syn::Item {
     if let syn::ItemKind::Impl(unsafety, polarity, generics, path, ty, items) = syn::parse_item(&source).unwrap().node {
         let impl_name = if let syn::Ty::Path(_, path) = *ty {
             path.segments[0].ident.as_ref().to_owned()
@@ -81,21 +117,15 @@ pub fn print_ast(args: TokenStream, input: TokenStream) -> TokenStream {
         }
 
         let message_enum = syn::ItemKind::Enum(variants, generics);
-        let message_enum = syn::Item {
+        syn::Item {
             ident: syn::Ident::new(message_name),
             vis: syn::Visibility::Public,
             attrs: vec![],
             node: message_enum,
-        };
-        println!("{:#?}", message_enum);
+        }
+    } else {
+        panic!("")
     }
-
-
-    //
-    //    println!("{:#?}", ast.attrs);
-    //    unimplemented!()
-
-    args
 }
 
 //fn function_attr(ast: &syn::MacroInput) -> quote::Tokens {
