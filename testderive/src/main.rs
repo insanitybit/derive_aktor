@@ -10,14 +10,15 @@ extern crate derive_aktor;
 use derive_aktor::print_ast;
 
 //#[derive(Debug, HelloWorld)]
-struct Foo {
+pub struct Foo {
     bar: u64
 }
 
 
+
 #[print_ast]
 impl Foo {
-    pub fn bar(baz: u32, blah: Vec<u8>) -> bool {
+    pub fn bar(&self, baz: u32, blah: Vec<u8>) -> bool {
         true
     }
 //    pub fn bar(baz: u64) -> bool {

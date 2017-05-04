@@ -5,3 +5,6 @@ authors = ["insanitybit <insanitybit@gmail.com>"]
 
 [dependencies]
 derive-aktor = {path = "../"}
+two-lock-queue = "*"
+fibers = "*"
+futures = "*"

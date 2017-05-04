@@ -9,6 +9,8 @@ proc-macro = true
 [dependencies]
 quote = "*"
 two-lock-queue = "*"
+fibers = "*"
+futures = "*"
 
 [dependencies.syn]
 version = "*"
