@@ -1,9 +1,12 @@
+#![recursion_limit="1024"]
 #![feature(proc_macro)]
 extern crate two_lock_queue;
 #[macro_use]
 extern crate quote;
 extern crate proc_macro;
 extern crate syn;
+extern crate fibers;
+extern crate futures;
 
 use proc_macro::TokenStream;
 use two_lock_queue::{unbounded, Sender, Receiver, TryRecvError};
@@ -23,18 +26,104 @@ pub fn print_ast(args: TokenStream, input: TokenStream) -> TokenStream {
 
     let actor_impl = gen_actor_impl(source.clone());
 
-    quote!(#actor_message #actor_struct).parse().unwrap()
+    quote!(#actor_message #actor_struct #actor_impl).parse().unwrap()
 }
 
 fn gen_actor_impl(source: String) -> quote::Tokens {
     if let syn::ItemKind::Impl(unsafety, polarity, generics, path, ty, items) = syn::parse_item(&source).unwrap().node {
-        for item in items.iter().filter(|item| item.vis == syn::Visibility::Public) {
-            println!("{:#?}", item);
+        let mut methods = quote!();
+
+
+        let impl_name = if let syn::Ty::Path(_, path) = *ty {
+            path.segments[0].ident.as_ref().to_owned()
+        } else {
+            panic!("Could not find impl ident");
+        };
+
+        let message_name = syn::Ident::new(format!("{}Message", impl_name));
+        let o_name = syn::Ident::new(impl_name.clone());
+        let impl_name = syn::Ident::new(format!("{}Actor", impl_name));
+
+        for method in items.iter().filter(|item| item.vis == syn::Visibility::Public) {
+            if let syn::ImplItemKind::Method(ref sig, _) = method.node {
+                let method_name = method.ident.clone();
+                let mut args: Vec<_> = sig.decl.inputs.iter().filter_map(|input| {
+                    if let &syn::FnArg::Captured(syn::Pat::Ident(_, ref id, _), ref ty) = input {
+                        Some((id, ty))
+                    } else {
+                        None
+                    }
+                }).collect();
+
+                let mut formatted_args = quote!();
+
+                let mut field_mappings = args.clone().into_iter().fold(quote!(), |mut t, (id, _)| {
+                    t.append(quote!(#id: #id,));
+                    t
+                });
+
+                for (i, arg) in args.iter().enumerate() {
+                    let (id, ty) = arg.clone();
+                    formatted_args.append(quote!(#id: #ty));
+                    if i < args.len() -1 {
+                        formatted_args.append(quote!(,));
+                    }
+                }
+
+                let variant_id = method.ident.as_ref().to_owned();
+                let variant_id = syn::Ident::new(format!("{}{}Message", &variant_id[0..1].to_uppercase(), &variant_id[1..]));
+//                println!("{}", variant_id.as_ref());
+                let q = quote!(pub fn #method_name  (&self, #formatted_args) {
+                    let msg = #message_name::#variant_id {
+                        #field_mappings
+                    };
+
+                    self.sender.send(msg);
+                });
+
+                methods.append(q);
+            }
         }
-        unimplemented!()
+
+        return quote!{
+            extern crate two_lock_queue;
+            extern crate fibers;
+            extern crate futures;
+
+            use futures::future::*;
+            use two_lock_queue::{unbounded, Sender, Receiver, TryRecvError};
+
+            impl #impl_name {
+                pub fn new<H>(handle: H, actor: #o_name) -> #impl_name
+                 where H: Send + fibers::Spawn + Clone + 'static
+                 {
+                    let (sender, receiver) = unbounded();
+                    let id = "random string".to_owned();
+
+                    let recvr = receiver.clone();
+
+//                    handle.spawn(futures::lazy(move || {
+//                        loop_fn(0, move |_| match recvr.try_recv() {
+//                            _ => Loop::Break(())
+//                        })
+//                    }));
+
+                    #impl_name {
+                        sender: sender,
+                        receiver: receiver,
+                        id: id
+                    }
+                }
+
+                #methods
+            }
+        };
+
     } else {
         panic!("Actor derive only works on impl blocks")
     }
+
+    unimplemented!()
 }
 
 fn gen_actor_struct(source: String) -> quote::Tokens {
@@ -45,7 +134,6 @@ fn gen_actor_struct(source: String) -> quote::Tokens {
             panic!("Could not find impl ident");
         };
         quote! {
-            use std::sync::mpsc::{Receiver, Sender};
             pub struct #actor_name {
                 sender: Sender<#msg_name>,
                 receiver: Receiver<#msg_name>,
@@ -70,7 +158,7 @@ fn gen_message(source: String) -> syn::Item {
             if let syn::ImplItemKind::Method(ref sig, _) = item.node {
                 let variant_id = item.ident.as_ref().to_owned();
                 let variant_id = syn::Ident::new(format!("{}{}Message", &variant_id[0..1].to_uppercase(), &variant_id[1..]));
-                //                println!("{:#?}", variant_id);
+
                 let mut variant_fields = vec![];
                 for (id, ty) in sig.decl.inputs.iter().filter_map(|input| {
                     if let &syn::FnArg::Captured(syn::Pat::Ident(_, ref id, _), ref ty) = input {
