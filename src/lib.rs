@@ -4,20 +4,39 @@ extern crate two_lock_queue;
 extern crate quote;
 extern crate proc_macro;
 extern crate syn;
+
 use proc_macro::TokenStream;
 use two_lock_queue::{unbounded, Sender, Receiver, TryRecvError};
+
 #[proc_macro_attribute]
 pub fn print_ast(args: TokenStream, input: TokenStream) -> TokenStream {
     let source = input.to_string();
+
     // Generate enum for communicating with Actor
     let actor_message = gen_message(source.clone());
+
     // The actor Struct will take a type Foo and become an ActorFoo. It will have an impl with a
     // 'new' that takes a Foo and returns an ActorFoo. It will hand that Actor to a thread/ fiber,
     // It will also hand a receiver to the fiber. The fiber will then repeatedly call 'on_message'
     // on the Foo, handing it messages off of the queue.
     let actor_struct = gen_actor_struct(source.clone());
+
+    let actor_impl = gen_actor_impl(source.clone());
+
     quote!(#actor_message #actor_struct).parse().unwrap()
 }
+
+fn gen_actor_impl(source: String) -> quote::Tokens {
+    if let syn::ItemKind::Impl(unsafety, polarity, generics, path, ty, items) = syn::parse_item(&source).unwrap().node {
+        for item in items.iter().filter(|item| item.vis == syn::Visibility::Public) {
+            println!("{:#?}", item);
+        }
+        unimplemented!()
+    } else {
+        panic!("Actor derive only works on impl blocks")
+    }
+}
+
 fn gen_actor_struct(source: String) -> quote::Tokens {
     if let syn::ItemKind::Impl(unsafety, polarity, generics, path, ty, items) = syn::parse_item(&source).unwrap().node {
         let (actor_name, msg_name) = if let syn::Ty::Path(_, path) = *ty {
@@ -37,6 +56,7 @@ fn gen_actor_struct(source: String) -> quote::Tokens {
         panic!("Actor derive only owrks on impl blocks")
     }
 }
+
 fn gen_message(source: String) -> syn::Item {
     if let syn::ItemKind::Impl(unsafety, polarity, generics, path, ty, items) = syn::parse_item(&source).unwrap().node {
         let impl_name = if let syn::Ty::Path(_, path) = *ty {
@@ -75,7 +95,6 @@ fn gen_message(source: String) -> syn::Item {
                     discriminant: None
                 };
                 variants.push(variant);
-                //                println!("{:#?}", variant);
             }
         }
         let message_enum = syn::ItemKind::Enum(variants, generics);
