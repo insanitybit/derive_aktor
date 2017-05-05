@@ -14,6 +14,7 @@ using strongly typed, compile time generated interfaces.
     * Generate Actor structure (Done)
     * Generate Actor Impl (Done)
     * Generate 'route_message' impl (Done)
+    * Automate return values being handled by closures
     * Actors from Traits
 
 When this crate is finished, you will be able to write the following (at minimum):
