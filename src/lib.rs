@@ -12,7 +12,7 @@ use proc_macro::TokenStream;
 use two_lock_queue::{unbounded, Sender, Receiver, TryRecvError};
 
 #[proc_macro_attribute]
-pub fn print_ast(args: TokenStream, input: TokenStream) -> TokenStream {
+pub fn derive_aktor(args: TokenStream, input: TokenStream) -> TokenStream {
     let source = input.to_string();
 
     // Generate enum for communicating with Actor
@@ -79,9 +79,9 @@ fn gen_route_msg(source: String) -> quote::Tokens {
 
                 match_arms.append(arm);
             }
-
-            let impl_name = syn::Ident::new(impl_name);
-            return quote! {
+        }
+        let impl_name = syn::Ident::new(impl_name);
+        return quote! {
                 impl #impl_name {
                     pub fn route_msg(&mut self, msg: #message_name) {
                         match msg {
@@ -90,7 +90,6 @@ fn gen_route_msg(source: String) -> quote::Tokens {
                     }
                 }
             }
-        }
     }
 
     unimplemented!()
