@@ -107,8 +107,8 @@ fn gen_route_msg(source: String) -> quote::Tokens {
 
         let impl_name = syn::Ident::new(impl_name);
         return quote! {
-            impl #generics #impl_name #generics {
-                pub fn route_msg(&mut self, msg: #message_name #msg_generics) {
+            impl #impl_name {
+                pub fn route_msg #msg_generics (&mut self, msg: #message_name #msg_generics) {
                     match msg {
                         #match_arms
                     };
