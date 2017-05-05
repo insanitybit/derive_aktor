@@ -17,7 +17,7 @@ using strongly typed, compile time generated interfaces.
     * Automate return values being handled by closures
     * Actors from Traits
 
-When this crate is finished, you will be able to write the following (at minimum):
+With the current state of the crate, the following code is representative of the experience using this library:
 
 
 ```rust
