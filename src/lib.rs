@@ -43,7 +43,7 @@ fn gen_route_msg(source: String) -> quote::Tokens {
         };
 
         let message_name = syn::Ident::new(format!("{}Message", impl_name));
-
+        let mut method_generics = vec![];
         let mut match_arms = quote!();
         for method in items.iter().filter(|item| item.vis == syn::Visibility::Public) {
             if let syn::ImplItemKind::Method(ref sig, _) = method.node {
@@ -55,6 +55,10 @@ fn gen_route_msg(source: String) -> quote::Tokens {
                         None
                     }
                 }).collect();
+
+
+                let sig_g = sig.generics.clone();
+                method_generics.push((sig_g.lifetimes, sig_g.ty_params, sig_g.where_clause.predicates));
 
                 let mut formatted_args = quote!();
                 let mut field_names = quote!();
@@ -80,16 +84,37 @@ fn gen_route_msg(source: String) -> quote::Tokens {
                 match_arms.append(arm);
             }
         }
+
+        let mut lifetimes: Vec<_> = method_generics.iter().cloned().fold(Vec::new(), |mut a, g| {a.extend_from_slice(&g.0[..]); a});
+        let mut ty_params: Vec<_> = method_generics.iter().cloned().fold(Vec::new(), |mut a, g| {a.extend_from_slice(&g.1[..]); a});
+        let mut predicates: Vec<_> = method_generics.iter().cloned().fold(Vec::new(), |mut a, g| {a.extend_from_slice(&g.2[..]); a});
+
+        let msg_generics = syn::Generics {
+            lifetimes: lifetimes.clone(),
+            ty_params: ty_params.clone(),
+            where_clause: syn::WhereClause { predicates: predicates.clone() }
+        };
+
+        lifetimes.extend_from_slice(&generics.lifetimes[..]);
+        ty_params.extend_from_slice(&generics.ty_params[..]);
+        predicates.extend_from_slice(&generics.where_clause.predicates[..]);
+
+        let generics = syn::Generics {
+            lifetimes,
+            ty_params,
+            where_clause: syn::WhereClause { predicates }
+        };
+
         let impl_name = syn::Ident::new(impl_name);
         return quote! {
-                impl #impl_name #generics {
-                    pub fn route_msg(&mut self, msg: #message_name) {
-                        match msg {
-                            #match_arms
-                        };
-                    }
+            impl #generics #impl_name #generics {
+                pub fn route_msg(&mut self, msg: #message_name #msg_generics) {
+                    match msg {
+                        #match_arms
+                    };
                 }
             }
+        }
     }
 
     unimplemented!()
@@ -110,10 +135,11 @@ fn gen_actor_impl(source: String) -> quote::Tokens {
         let o_name = syn::Ident::new(impl_name.clone());
         let impl_name = syn::Ident::new(format!("{}Actor", impl_name));
 
+        let mut method_generics= vec![];
+
         for method in items.iter().filter(|item| item.vis == syn::Visibility::Public) {
             if let syn::ImplItemKind::Method(ref sig, _) = method.node {
                 let method_name = method.ident.clone();
-
 
                 let mut args: Vec<_> = sig.decl.inputs.iter().filter_map(|input| {
                     if let &syn::FnArg::Captured(syn::Pat::Ident(_, ref id, _), ref ty) = input {
@@ -122,6 +148,10 @@ fn gen_actor_impl(source: String) -> quote::Tokens {
                         None
                     }
                 }).collect();
+
+
+                let sig_g = sig.generics.clone();
+                method_generics.push((sig_g.lifetimes, sig_g.ty_params, sig_g.where_clause.predicates));
 
                 let mut formatted_args = quote!();
 
@@ -153,6 +183,26 @@ fn gen_actor_impl(source: String) -> quote::Tokens {
             }
         }
 
+        let mut lifetimes: Vec<_> = method_generics.iter().cloned().fold(Vec::new(), |mut a, g| {a.extend_from_slice(&g.0[..]); a});
+        let mut ty_params: Vec<_> = method_generics.iter().cloned().fold(Vec::new(), |mut a, g| {a.extend_from_slice(&g.1[..]); a});
+        let mut predicates: Vec<_> = method_generics.iter().cloned().fold(Vec::new(), |mut a, g| {a.extend_from_slice(&g.2[..]); a});
+
+        let msg_generics = syn::Generics {
+            lifetimes: lifetimes.clone(),
+            ty_params: ty_params.clone(),
+            where_clause: syn::WhereClause { predicates: predicates.clone() }
+        };
+
+        lifetimes.extend_from_slice(&generics.lifetimes[..]);
+        ty_params.extend_from_slice(&generics.ty_params[..]);
+        predicates.extend_from_slice(&generics.where_clause.predicates[..]);
+
+        let generics = syn::Generics {
+            lifetimes,
+            ty_params,
+            where_clause: syn::WhereClause { predicates }
+        };
+
         return quote! {
             extern crate two_lock_queue;
             extern crate fibers;
@@ -160,8 +210,8 @@ fn gen_actor_impl(source: String) -> quote::Tokens {
             use futures::future::*;
             use two_lock_queue::{unbounded, Sender, Receiver, TryRecvError};
 
-            impl #impl_name #generics {
-                pub fn new<H>(handle: H, mut actor: #o_name) -> #impl_name
+            impl #generics #impl_name #generics {
+                pub fn new<H>(handle: H, mut actor: #o_name) -> #impl_name #generics
                  where H: Send + fibers::Spawn + Clone + 'static
                  {
                     let (sender, receiver) = unbounded();
@@ -205,20 +255,33 @@ fn gen_actor_struct(source: String) -> quote::Tokens {
             panic!("Could not find impl ident");
         };
 
-//        let mut method_generics = vec![];
-//
-//        for item in items.iter().filter(|item| item.vis == syn::Visibility::Public) {
-////            let sig_g = sig.generics.clone();
-////            method_generics.push((sig_g.lifetimes, sig_g.ty_params, sig_g.where_clause.predicates));
-//
-//
-//        }
+        let mut method_generics = vec![];
 
+        for item in items.iter().filter(|item| item.vis == syn::Visibility::Public) {
+            if let syn::ImplItemKind::Method(ref sig, _) = item.node {
+                let sig_g = sig.generics.clone();
+                method_generics.push((sig_g.lifetimes, sig_g.ty_params, sig_g.where_clause.predicates));
+            }
+        }
+
+        let mut lifetimes: Vec<_> = method_generics.iter().cloned().fold(Vec::new(), |mut a, g| {a.extend_from_slice(&g.0[..]); a});
+        let mut ty_params: Vec<_> = method_generics.iter().cloned().fold(Vec::new(), |mut a, g| {a.extend_from_slice(&g.1[..]); a});
+        let mut predicates: Vec<_> = method_generics.iter().cloned().fold(Vec::new(), |mut a, g| {a.extend_from_slice(&g.2[..]); a});
+
+        lifetimes.extend_from_slice(&generics.lifetimes[..]);
+        ty_params.extend_from_slice(&generics.ty_params[..]);
+        predicates.extend_from_slice(&generics.where_clause.predicates[..]);
+
+        let generics = syn::Generics {
+            lifetimes,
+            ty_params,
+            where_clause: syn::WhereClause { predicates }
+        };
 
         quote! {
             pub struct #actor_name #generics {
-                sender: Sender<#msg_name>,
-                receiver: Receiver<#msg_name>,
+                sender: Sender<#msg_name #generics>,
+                receiver: Receiver<#msg_name #generics>,
                 id: String,
             }
         }
