@@ -82,7 +82,7 @@ fn gen_route_msg(source: String) -> quote::Tokens {
         }
         let impl_name = syn::Ident::new(impl_name);
         return quote! {
-                impl #impl_name {
+                impl #impl_name #generics {
                     pub fn route_msg(&mut self, msg: #message_name) {
                         match msg {
                             #match_arms
@@ -113,6 +113,8 @@ fn gen_actor_impl(source: String) -> quote::Tokens {
         for method in items.iter().filter(|item| item.vis == syn::Visibility::Public) {
             if let syn::ImplItemKind::Method(ref sig, _) = method.node {
                 let method_name = method.ident.clone();
+
+
                 let mut args: Vec<_> = sig.decl.inputs.iter().filter_map(|input| {
                     if let &syn::FnArg::Captured(syn::Pat::Ident(_, ref id, _), ref ty) = input {
                         Some((id, ty))
@@ -138,8 +140,8 @@ fn gen_actor_impl(source: String) -> quote::Tokens {
 
                 let variant_id = method.ident.as_ref().to_owned();
                 let variant_id = syn::Ident::new(format!("{}{}Message", &variant_id[0..1].to_uppercase(), &variant_id[1..]));
-                //                println!("{}", variant_id.as_ref());
-                let q = quote!(pub fn #method_name  (&self, #formatted_args) {
+                let generics = sig.generics.clone();
+                let q = quote!(pub fn #method_name #generics (&self, #formatted_args) {
                     let msg = #message_name::#variant_id {
                         #field_mappings
                     };
@@ -158,7 +160,7 @@ fn gen_actor_impl(source: String) -> quote::Tokens {
             use futures::future::*;
             use two_lock_queue::{unbounded, Sender, Receiver, TryRecvError};
 
-            impl #impl_name {
+            impl #impl_name #generics {
                 pub fn new<H>(handle: H, mut actor: #o_name) -> #impl_name
                  where H: Send + fibers::Spawn + Clone + 'static
                  {
@@ -202,8 +204,19 @@ fn gen_actor_struct(source: String) -> quote::Tokens {
         } else {
             panic!("Could not find impl ident");
         };
+
+//        let mut method_generics = vec![];
+//
+//        for item in items.iter().filter(|item| item.vis == syn::Visibility::Public) {
+////            let sig_g = sig.generics.clone();
+////            method_generics.push((sig_g.lifetimes, sig_g.ty_params, sig_g.where_clause.predicates));
+//
+//
+//        }
+
+
         quote! {
-            pub struct #actor_name {
+            pub struct #actor_name #generics {
                 sender: Sender<#msg_name>,
                 receiver: Receiver<#msg_name>,
                 id: String,
@@ -223,10 +236,16 @@ fn gen_message(source: String) -> syn::Item {
         };
         let mut variants = vec![];
         let message_name = format!("{}Message", impl_name);
+
+        let mut method_generics = vec![];
+
         for item in items.iter().filter(|item| item.vis == syn::Visibility::Public) {
             if let syn::ImplItemKind::Method(ref sig, _) = item.node {
                 let variant_id = item.ident.as_ref().to_owned();
                 let variant_id = syn::Ident::new(format!("{}{}Message", &variant_id[0..1].to_uppercase(), &variant_id[1..]));
+
+                let sig_g = sig.generics.clone();
+                method_generics.push((sig_g.lifetimes, sig_g.ty_params, sig_g.where_clause.predicates));
 
                 let mut variant_fields = vec![];
                 for (id, ty) in sig.decl.inputs.iter().filter_map(|input| {
@@ -245,6 +264,7 @@ fn gen_message(source: String) -> syn::Item {
                     variant_fields.push(field);
                 }
                 let variant_data = syn::VariantData::Struct(variant_fields);
+
                 let variant = syn::Variant {
                     ident: variant_id,
                     attrs: vec![],
@@ -254,10 +274,26 @@ fn gen_message(source: String) -> syn::Item {
                 variants.push(variant);
             }
         }
+
+
+        let mut lifetimes: Vec<_> = method_generics.iter().cloned().fold(Vec::new(), |mut a, g| {a.extend_from_slice(&g.0[..]); a});
+        let mut ty_params: Vec<_> = method_generics.iter().cloned().fold(Vec::new(), |mut a, g| {a.extend_from_slice(&g.1[..]); a});
+        let mut predicates: Vec<_> = method_generics.iter().cloned().fold(Vec::new(), |mut a, g| {a.extend_from_slice(&g.2[..]); a});
+
+        lifetimes.extend_from_slice(&generics.lifetimes[..]);
+        ty_params.extend_from_slice(&generics.ty_params[..]);
+        predicates.extend_from_slice(&generics.where_clause.predicates[..]);
+
+        let generics = syn::Generics {
+            lifetimes,
+            ty_params,
+            where_clause: syn::WhereClause { predicates }
+        };
+
         let message_enum = syn::ItemKind::Enum(variants, generics);
         syn::Item {
             ident: syn::Ident::new(message_name),
-            vis: syn::Visibility::Public,
+            vis: syn::Visibility::Inherited,
             attrs: vec![],
             node: message_enum,
         }
