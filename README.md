@@ -11,9 +11,9 @@ using strongly typed, compile time generated interfaces.
 
 # Goals
     * Generate enum from impl function types (Done)
-    * Generate Actor structure (In Progress)
-    * Generate Actor Impl
-    * Generate 'route_message' impl
+    * Generate Actor structure (Done)
+    * Generate Actor Impl (Done)
+    * Generate 'route_message' impl (Done)
     * Actors from Traits
 
 When this crate is finished, you will be able to write the following (at minimum):
