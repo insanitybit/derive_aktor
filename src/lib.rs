@@ -28,9 +28,8 @@ pub fn print_ast(args: TokenStream, input: TokenStream) -> TokenStream {
 
     let route_msg = gen_route_msg(source.clone());
 
-    println!("{:#?}", quote!(#actor_message #actor_struct #actor_impl #route_msg));
-
-    quote!(#actor_message #actor_struct #actor_impl #route_msg).parse().unwrap()
+    let parsed_input = syn::parse_item(&source).unwrap();
+    quote!(#parsed_input #actor_message #actor_struct #actor_impl #route_msg).parse().unwrap()
 }
 
 fn gen_route_msg(source: String) -> quote::Tokens {
