@@ -12,41 +12,56 @@ extern crate std as std;
 #[macro_use]
 extern crate derive_aktor;
 
+use std::fmt::Debug;
 
 use derive_aktor::derive_actor;
+use fibers::{Executor, ThreadPoolExecutor};
 
-pub struct Foo<A: 'static + Send, B>
-    where B: 'static + Send
-{
-    bar: A,
-    baz: B,
-}
+pub struct PrintLogger {}
 
-
-
-impl<A: 'static + Send, B> Foo<A, B>
-    where B: 'static + Send
-{
-    pub fn bar<T: 'static, U>(&self, baz: u32, blah: T, blahh: U) -> bool
-        where U: 'static
-    {
+impl PrintLogger {
+    pub fn info<T: Debug + Send + 'static>(&self, data: T) {
 
 
 
 
-        true
+
+
+        ::io::_print(::std::fmt::Arguments::new_v1({
+                                                       static __STATIC_FMTSTR:
+                                                       &'static [&'static str]
+                                                       =
+                                                           &["", "\n"];
+                                                       __STATIC_FMTSTR
+                                                   },
+                                                   &match (&data,) {
+                                                       (__arg0,) =>
+                                                           [::std::fmt::ArgumentV1::new(__arg0,
+                                                                                        ::std::fmt::Debug::fmt)],
+                                                   }));
+    }
+    pub fn error<U: Debug + Send + 'static>(&self, data: U) {
+        ::io::_print(::std::fmt::Arguments::new_v1({
+                                                       static __STATIC_FMTSTR:
+                                                       &'static [&'static str]
+                                                       =
+                                                           &["", "\n"];
+                                                       __STATIC_FMTSTR
+                                                   },
+                                                   &match (&data,) {
+                                                       (__arg0,) =>
+                                                           [::std::fmt::ArgumentV1::new(__arg0,
+                                                                                        ::std::fmt::Debug::fmt)],
+                                                   }));
     }
 }
-pub enum FooMessage<T: 'static, U>
-    where U: 'static
-{
-    BarMessage { baz: u32, blah: T, blahh: U },
+pub enum PrintLoggerMessage<infoT: Debug + Send + 'static, errorU: Debug + Send + 'static> {
+    InfoMessage { data: T },
+    ErrorMessage { data: U },
 }
-pub struct FooActor<T: 'static, U>
-    where U: 'static
-{
-    sender: Sender<FooMessage<T, U>>,
-    receiver: Receiver<FooMessage<T, U>>,
+pub struct PrintLoggerActor<infoT: Debug + Send + 'static, errorU: Debug + Send + 'static> {
+    sender: Sender<PrintLoggerMessage<infoT, errorU>>,
+    receiver: Receiver<PrintLoggerMessage<infoT, errorU>>,
     id: String,
 }
 extern crate two_lock_queue;
@@ -54,10 +69,9 @@ extern crate fibers;
 extern crate futures;
 use futures::future::*;
 use two_lock_queue::{unbounded, Sender, Receiver, TryRecvError};
-impl<T: 'static, U> FooActor<T, U>
-    where U: 'static
-{
-    pub fn new<A: 'static + Send, B: 'static + Send, H>(handle: H, mut actor: Foo<A, B>) -> FooActor<T, U>
+impl<infoT: Debug + Send + 'static, errorU: Debug + Send + 'static> PrintLoggerActor<infoT,
+    errorU> {
+    pub fn new<H>(handle: H, mut actor: PrintLogger) -> PrintLoggerActor<infoT, errorU>
         where H: Send + fibers::Spawn + Clone + 'static
     {
         let (sender, receiver) = unbounded();
@@ -73,30 +87,36 @@ impl<T: 'static, U> FooActor<T, U>
                 Err(TryRecvError::Empty) => Ok::<_, _>(futures::future::Loop::Continue(0)),
             })
         }));
-        FooActor {
+        PrintLoggerActor {
             sender: sender,
             receiver: receiver,
             id: id,
         }
     }
-    pub fn bar(&self, baz: u32, blah: T, blahh: U) {
-        let msg = FooMessage::BarMessage {
-            baz: baz,
-            blah: blah,
-            blahh: blahh,
-        };
+    pub fn info(&self, data: T) {
+        let msg = PrintLoggerMessage::InfoMessage { data: data };
+        self.sender.send(msg);
+    }
+    pub fn error(&self, data: U) {
+        let msg = PrintLoggerMessage::ErrorMessage { data: data };
         self.sender.send(msg);
     }
 }
-impl<A: 'static + Send, B> Foo<A, B>
-    where B: 'static + Send
-{
-    pub fn route_msg<T: 'static, U>(&mut self, msg: FooMessage<T, U>) {
+impl PrintLogger {
+    pub fn route_msg<infoT: Debug + Send + 'static, errorU: Debug + Send +
+    'static>(&mut self,
+             msg: PrintLoggerMessage<infoT, errorU>) {
         match msg {
-            FooMessage::BarMessage { baz: baz, blah: blah, blahh: blahh } => {
-                self.bar(baz, blah, blahh)
-            }
+            PrintLoggerMessage::InfoMessage { data: data } => self.info(data),
+            PrintLoggerMessage::ErrorMessage { data: data } => self.error(data),
         };
     }
 }
-fn main() {}
+fn main() {
+    let system = ThreadPoolExecutor::with_thread_count(2).unwrap();
+    let logger = PrintLogger {};
+    let log_actor = PrintLoggerActor::new(system.handle(), logger);
+    log_actor.info("info log");
+    log_actor.error("error!!".to_owned());
+    system.run();
+}

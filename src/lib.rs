@@ -89,10 +89,19 @@ fn gen_route_msg(source: String) -> quote::Tokens {
         let mut ty_params: Vec<_> = method_generics.iter().cloned().fold(Vec::new(), |mut a, g| {a.extend_from_slice(&g.1[..]); a});
         let mut predicates: Vec<_> = method_generics.iter().cloned().fold(Vec::new(), |mut a, g| {a.extend_from_slice(&g.2[..]); a});
 
+        let method_names: Vec<_> = items.iter().map(|item| item.ident.as_ref().to_owned()).collect();
+
+        let mut msg_ty_params: Vec<_> = ty_params.iter().cloned().zip(method_names.iter()).map(|(t, name)| syn::TyParam {
+            attrs: t.attrs,
+            ident: syn::Ident::new(format!("{}{}", name, t.ident.as_ref())),
+            bounds: t.bounds,
+            default: t.default
+        }).collect();
+
         let msg_generics = syn::Generics {
             lifetimes: lifetimes.clone(),
-            ty_params: ty_params.clone(),
-            where_clause: syn::WhereClause { predicates: predicates.clone() }
+            ty_params: msg_ty_params.clone(),
+            where_clause: syn::WhereClause { predicates: predicates.clone()}
         };
 
         let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
@@ -183,10 +192,20 @@ fn gen_actor_impl(source: String) -> quote::Tokens {
         let mut ty_params: Vec<_> = method_generics.iter().cloned().fold(Vec::new(), |mut a, g| {a.extend_from_slice(&g.1[..]); a});
         let mut predicates: Vec<_> = method_generics.iter().cloned().fold(Vec::new(), |mut a, g| {a.extend_from_slice(&g.2[..]); a});
 
+
+        let method_names: Vec<_> = items.iter().map(|item| item.ident.as_ref().to_owned()).collect();
+
+        let mut msg_ty_params: Vec<_> = ty_params.iter().cloned().zip(method_names.iter()).map(|(t, name)| syn::TyParam {
+            attrs: t.attrs,
+            ident: syn::Ident::new(format!("{}{}", name, t.ident.as_ref())),
+            bounds: t.bounds,
+            default: t.default
+        }).collect();
+
         let msg_generics = syn::Generics {
             lifetimes: lifetimes.clone(),
-            ty_params: ty_params.clone(),
-            where_clause: syn::WhereClause { predicates: predicates.clone() }
+            ty_params: msg_ty_params.clone(),
+            where_clause: syn::WhereClause { predicates: predicates.clone()}
         };
 
         let (msg_impl_generics, msg_ty_generics, msg_where_clause) = msg_generics.split_for_impl();
@@ -281,9 +300,18 @@ fn gen_actor_struct(source: String) -> quote::Tokens {
         let mut ty_params: Vec<_> = method_generics.iter().cloned().fold(Vec::new(), |mut a, g| {a.extend_from_slice(&g.1[..]); a});
         let mut predicates: Vec<_> = method_generics.iter().cloned().fold(Vec::new(), |mut a, g| {a.extend_from_slice(&g.2[..]); a});
 
+        let method_names: Vec<_> = items.iter().map(|item| item.ident.as_ref().to_owned()).collect();
+
+        let mut msg_ty_params: Vec<_> = ty_params.iter().cloned().zip(method_names.iter()).map(|(t, name)| syn::TyParam {
+            attrs: t.attrs,
+            ident: syn::Ident::new(format!("{}{}", name, t.ident.as_ref())),
+            bounds: t.bounds,
+            default: t.default
+        }).collect();
+
         let msg_generics = syn::Generics {
             lifetimes: lifetimes.clone(),
-            ty_params: ty_params.clone(),
+            ty_params: msg_ty_params.clone(),
             where_clause: syn::WhereClause { predicates: predicates.clone()}
         };
 
@@ -341,12 +369,22 @@ fn gen_message(source: String) -> syn::Item {
                         None
                     }
                 }) {
+
+//                    let ty = syn::TyParam {
+//                        attrs: ty.attrs,
+//                        ident: syn::Ident::new(format!("{}{}", item.ident.as_ref(), ty.ident.as_ref())),
+//                        bounds: ty.bounds,
+//                        default: ty.default
+//                    };
+
                     let field = syn::Field {
                         ident: Some(id.clone()),
                         vis: syn::Visibility::Inherited,
                         attrs: vec![],
                         ty: ty.clone()
                     };
+
+                    println!("{:#?}", field);
                     variant_fields.push(field);
                 }
                 let variant_data = syn::VariantData::Struct(variant_fields);
@@ -361,14 +399,23 @@ fn gen_message(source: String) -> syn::Item {
             }
         }
 
-
         let mut lifetimes: Vec<_> = method_generics.iter().cloned().fold(Vec::new(), |mut a, g| {a.extend_from_slice(&g.0[..]); a});
         let mut ty_params: Vec<_> = method_generics.iter().cloned().fold(Vec::new(), |mut a, g| {a.extend_from_slice(&g.1[..]); a});
         let mut predicates: Vec<_> = method_generics.iter().cloned().fold(Vec::new(), |mut a, g| {a.extend_from_slice(&g.2[..]); a});
 
+
+        let method_names: Vec<_> = items.iter().map(|item| item.ident.as_ref().to_owned()).collect();
+
+        let mut msg_ty_params: Vec<_> = ty_params.iter().cloned().zip(method_names.iter()).map(|(t, name)| syn::TyParam {
+            attrs: t.attrs,
+            ident: syn::Ident::new(format!("{}{}", name, t.ident.as_ref())),
+            bounds: t.bounds,
+            default: t.default
+        }).collect();
+
         let msg_generics = syn::Generics {
             lifetimes: lifetimes.clone(),
-            ty_params: ty_params.clone(),
+            ty_params: msg_ty_params.clone(),
             where_clause: syn::WhereClause { predicates: predicates.clone()}
         };
 
