@@ -9,15 +9,18 @@ extern crate derive_aktor;
 
 use derive_aktor::derive_actor;
 
-pub struct Foo {
-    bar: u64
+pub struct Foo<A: 'static + Send, B: 'static + Send>{
+    bar: A,
+    baz: B
 }
 
 
 
 #[derive_actor]
-impl Foo {
-    pub fn bar<T: 'static>(&self, baz: u32, blah: T) -> bool {
+impl<A: 'static + Send, B: 'static + Send> Foo<A, B> {
+
+    pub fn bar<T: 'static, U>(&self, baz: u32, blah: T, blahh: U) -> bool
+        where U: 'static {
         true
     }
 }
