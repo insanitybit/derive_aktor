@@ -110,7 +110,7 @@ fn gen_route_msg(source: String) -> quote::Tokens {
         let impl_name = syn::Ident::new(impl_name);
         return quote! {
             impl #impl_name {
-                pub fn route_msg #msg_generics (&mut self, msg: #message_name #ty_generics) {
+                pub fn route_msg #msg_generics (&mut self, msg: #message_name #ty_generics) #where_clause {
                     match msg {
                         #match_arms
                     };
@@ -285,7 +285,7 @@ fn gen_actor_struct(source: String) -> quote::Tokens {
         let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
         quote! {
-            pub struct #actor_name #generics {
+            pub struct #actor_name #generics #where_clause {
                 sender: Sender<#msg_name #ty_generics>,
                 receiver: Receiver<#msg_name #ty_generics>,
                 id: String,
