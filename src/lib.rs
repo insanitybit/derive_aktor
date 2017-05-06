@@ -12,7 +12,7 @@ use proc_macro::TokenStream;
 use two_lock_queue::{unbounded, Sender, Receiver, TryRecvError};
 
 #[proc_macro_attribute]
-pub fn derive_aktor(args: TokenStream, input: TokenStream) -> TokenStream {
+pub fn derive_actor(args: TokenStream, input: TokenStream) -> TokenStream {
     let source = input.to_string();
 
     // Generate enum for communicating with Actor
@@ -105,10 +105,12 @@ fn gen_route_msg(source: String) -> quote::Tokens {
             where_clause: syn::WhereClause { predicates }
         };
 
+        let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
         let impl_name = syn::Ident::new(impl_name);
         return quote! {
             impl #impl_name {
-                pub fn route_msg #msg_generics (&mut self, msg: #message_name #msg_generics) {
+                pub fn route_msg #msg_generics (&mut self, msg: #message_name #ty_generics) {
                     match msg {
                         #match_arms
                     };
@@ -171,7 +173,7 @@ fn gen_actor_impl(source: String) -> quote::Tokens {
                 let variant_id = method.ident.as_ref().to_owned();
                 let variant_id = syn::Ident::new(format!("{}{}Message", &variant_id[0..1].to_uppercase(), &variant_id[1..]));
                 let generics = sig.generics.clone();
-                let q = quote!(pub fn #method_name #generics (&self, #formatted_args) {
+                let q = quote!(pub fn #method_name (&self, #formatted_args) {
                     let msg = #message_name::#variant_id {
                         #field_mappings
                     };
@@ -198,10 +200,12 @@ fn gen_actor_impl(source: String) -> quote::Tokens {
         predicates.extend_from_slice(&generics.where_clause.predicates[..]);
 
         let generics = syn::Generics {
-            lifetimes,
-            ty_params,
-            where_clause: syn::WhereClause { predicates }
+            lifetimes: lifetimes.clone(),
+            ty_params: ty_params.clone(),
+            where_clause: syn::WhereClause { predicates: predicates.clone()}
         };
+
+        let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
         return quote! {
             extern crate two_lock_queue;
@@ -210,8 +214,8 @@ fn gen_actor_impl(source: String) -> quote::Tokens {
             use futures::future::*;
             use two_lock_queue::{unbounded, Sender, Receiver, TryRecvError};
 
-            impl #generics #impl_name #generics {
-                pub fn new<H>(handle: H, mut actor: #o_name) -> #impl_name #generics
+            impl #impl_generics #impl_name #ty_generics #where_clause {
+                pub fn new<H>(handle: H, mut actor: #o_name) -> #impl_name #ty_generics
                  where H: Send + fibers::Spawn + Clone + 'static
                  {
                     let (sender, receiver) = unbounded();
@@ -278,10 +282,12 @@ fn gen_actor_struct(source: String) -> quote::Tokens {
             where_clause: syn::WhereClause { predicates }
         };
 
+        let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
         quote! {
             pub struct #actor_name #generics {
-                sender: Sender<#msg_name #generics>,
-                receiver: Receiver<#msg_name #generics>,
+                sender: Sender<#msg_name #ty_generics>,
+                receiver: Receiver<#msg_name #ty_generics>,
                 id: String,
             }
         }
@@ -356,7 +362,7 @@ fn gen_message(source: String) -> syn::Item {
         let message_enum = syn::ItemKind::Enum(variants, generics);
         syn::Item {
             ident: syn::Ident::new(message_name),
-            vis: syn::Visibility::Inherited,
+            vis: syn::Visibility::Public,
             attrs: vec![],
             node: message_enum,
         }

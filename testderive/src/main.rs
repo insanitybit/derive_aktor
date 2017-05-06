@@ -7,31 +7,22 @@
 extern crate derive_aktor;
 
 
-use derive_aktor::print_ast;
+use derive_aktor::derive_actor;
 
-//#[derive(Debug, HelloWorld)]
 pub struct Foo {
     bar: u64
 }
 
 
 
-#[print_ast]
+#[derive_actor]
 impl Foo {
-    pub fn bar(&self, baz: u32, blah: Vec<u8>) -> bool {
+    pub fn bar<T: 'static>(&self, baz: u32, blah: T) -> bool {
         true
     }
-//    pub fn bar(baz: u64) -> bool {
-//        false
-//    }
 }
 
 fn main() {
-    //    let f = FooActor {
-    //        inner: Foo {bar:0}
-    //    };
-
-    //    println!("{:#?}", f);
 }
 
 #[test]
