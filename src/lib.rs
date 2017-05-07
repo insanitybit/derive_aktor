@@ -46,7 +46,6 @@ pub fn derive_actor(args: TokenStream, input: TokenStream) -> TokenStream {
     //
     let parsed_input = syn::parse_item(&source).unwrap();
     quote!(#parsed_input #actor_message #actor_struct #actor_impl #route_msg).parse().unwrap()
-    //    unimplemented!();
 }
 
 fn parse_impl(source: &str) -> Impl {
@@ -219,7 +218,7 @@ fn route_match_arms(msg_name: syn::Ident, src_impl: Impl) -> quote::Tokens {
 }
 
 fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
-    let o_generics = src_impl.impl_generics;
+    let o_generics = src_impl.impl_generics.clone();
     let o_name = src_impl.original_name.clone();
 
     let actor_name = syn::Ident::new(format!("{}Actor", src_impl.original_name.clone()));
@@ -238,6 +237,8 @@ fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
         let s = syn::Ident::new(&s[1..s.len() - 1]);
         quote!(#s, H: Send + fibers::Spawn + Clone + 'static)
     };
+
+    let actor_methods = gen_actor_methods(src_impl.clone());
 
     quote! {
         extern crate two_lock_queue;
@@ -273,8 +274,57 @@ fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
                         id: id
                     }
                 }
+
+            #actor_methods
         }
     }
+}
+
+
+// fn foo<T: Bar>(baz: T)
+fn gen_actor_methods(src_impl: Impl) -> quote::Tokens {
+
+    let mut actor_methods = quote!();
+
+    for method in src_impl.methods.clone() {
+        let mut args = quote!();
+
+        let generic_idents: Vec<_> = method.signature.generics.ty_params.iter().cloned().map(|ty| ty.ident).collect();
+
+        let mut variant_fields = method.signature.decl.inputs.iter()
+            .fold(quote!(), |mut variant_fields, arg| {
+                if let &syn::FnArg::Captured(syn::Pat::Ident(_, ref id, _), syn::Ty::Path(_, ref ty)) = arg {
+                    // If we have a generic type we need to mangle it
+                    let typ = if generic_idents.contains(&ty.segments[0].ident) {
+                        syn::Ident::new(format!("{}{}", capitalize(method.name.as_ref()), ty.segments[0].ident.as_ref()))
+                    } else {
+                        ty.segments[0].ident.clone()
+                    };
+
+                    args.append(quote!(#id: #typ, ));
+
+                    variant_fields.append(quote! {
+                    #id: #id,
+                });
+                }
+                variant_fields
+            });
+
+        let method_name = method.name.clone();
+        let msg_name = syn::Ident::new(format!("{}Message", src_impl.original_name));
+        let variant_name = syn::Ident::new(format!("{}Variant", capitalize(method.name.as_ref())));
+
+        let method = quote! {
+            pub fn #method_name ( &self, #args ) {
+                let msg = #msg_name :: #variant_name { #variant_fields };
+                self.sender.send( msg );
+            }
+        };
+        actor_methods.append(method);
+
+    }
+
+    actor_methods
 }
 
 ///struct FooActor<MT, MU> {

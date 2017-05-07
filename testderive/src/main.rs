@@ -11,31 +11,31 @@ use std::fmt::Debug;
 use derive_aktor::derive_actor;
 use fibers::{Executor, ThreadPoolExecutor};
 
-pub struct PrintLogger<A: Clone + Send + 'static> {
-    a: std::marker::PhantomData<A>
+pub struct PrintLogger {
+
 }
 
 #[derive_actor]
-impl<A> PrintLogger<A> where A: Clone  + Send + 'static{
-    pub fn info<T: Debug + Send + 'static>(&self, data: T, msg: u64) {
+impl PrintLogger {
+    pub fn info<T: Debug + Send + 'static>(&self, data: T) {
         println!("{:?}", data);
     }
 
-    pub fn error<U: Debug + Send + 'static>(&self, data: U) {
+    pub fn error<T: Debug + Send + 'static>(&self, data: T) {
         println!("{:?}", data);
     }
 }
 
 fn main() {
     let system = ThreadPoolExecutor::with_thread_count(2).unwrap();
-//    let logger = PrintLogger{ a: u64};
-//
-//    let log_actor = PrintLoggerActor::new(system.handle(), logger);
-//
-//    log_actor.info("info log");
-//    log_actor.error("error!!".to_owned());
-//
-//    system.run();
+    let logger = PrintLogger{};
+
+    let log_actor = PrintLoggerActor::new(system.handle(), logger);
+
+    log_actor.info("info log");
+    log_actor.error("error!!".to_owned());
+
+    system.run();
 }
 
 #[test]
