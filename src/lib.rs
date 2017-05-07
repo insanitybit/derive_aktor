@@ -40,15 +40,13 @@ pub fn derive_actor(args: TokenStream, input: TokenStream) -> TokenStream {
     // on the Foo, handing it messages off of the queue.
     let actor_struct = gen_actor_struct(src_impl.clone());
 
-    println!("{:#?}", actor_struct);
+    let actor_impl = gen_actor_impl(src_impl.clone());
+
+    let route_msg = gen_route_msg(src_impl.clone());
     //
-    //    let actor_impl = gen_actor_impl(source.clone());
-    //
-    //    let route_msg = gen_route_msg(source.clone());
-    //
-    //    let parsed_input = syn::parse_item(&source).unwrap();
-    //    quote!(#parsed_input #actor_message #actor_struct #actor_impl #route_msg).parse().unwrap()
-    unimplemented!();
+    let parsed_input = syn::parse_item(&source).unwrap();
+    quote!(#parsed_input #actor_message #actor_struct #actor_impl #route_msg).parse().unwrap()
+    //    unimplemented!();
 }
 
 fn parse_impl(source: &str) -> Impl {
@@ -103,17 +101,26 @@ fn gen_variants(methods: Vec<Method>) -> quote::Tokens {
     methods.into_iter().fold(quote!(), |mut q_acc, method| {
         let variant_name = syn::Ident::new(format!("{}Variant", capitalize(method.name.as_ref())));
 
-        let mut variant_fields = method.signature.decl.inputs.iter()
-            .fold(quote!(), |mut variant_fields, arg|  {
-            if let &syn::FnArg::Captured(syn::Pat::Ident(_, ref id, _), syn::Ty::Path(_, ref ty)) = arg {
-                let typ = syn::Ident::new(format!("{}{}", capitalize(method.name.as_ref()), ty.segments[0].ident.as_ref()));
+        let generic_idents: Vec<_> = method.signature.generics.ty_params.iter().cloned().map(|ty| ty.ident).collect();
 
-                variant_fields.append(quote!{
+        let mut variant_fields = method.signature.decl.inputs.iter()
+            .fold(quote!(), |mut variant_fields, arg| {
+                if let &syn::FnArg::Captured(syn::Pat::Ident(_, ref id, _), syn::Ty::Path(_, ref ty)) = arg {
+
+                    // If we have a generic type we need to mangle it
+                    let typ = if generic_idents.contains(&ty.segments[0].ident) {
+                        syn::Ident::new(format!("{}{}", capitalize(method.name.as_ref()), ty.segments[0].ident.as_ref()))
+                    } else {
+                        ty.segments[0].ident.clone()
+                    };
+
+
+                    variant_fields.append(quote! {
                     #id: #typ,
                 });
-            }
-            variant_fields
-        });
+                }
+                variant_fields
+            });
 
         let variant = quote! {
             #variant_name {
@@ -160,238 +167,90 @@ fn capitalize(s: &str) -> String {
     format!("{}{}", char_0, &s[1..])
 }
 
-fn gen_route_msg(source: String) -> quote::Tokens {
-    if let syn::ItemKind::Impl(unsafety, polarity, generics, path, ty, items) = syn::parse_item(&source).unwrap().node {
-        let mut route_fn = quote!();
+fn gen_route_msg(src_impl: Impl) -> quote::Tokens {
+    let o_name = src_impl.original_name.clone();
+    let actor_name = syn::Ident::new(format!("{}Actor", src_impl.original_name.clone()));
+    let msg_name = syn::Ident::new(format!("{}Message", src_impl.original_name));
+    let msg_types = gen_msg_types(src_impl.methods.clone());
 
-        let impl_name = if let syn::Ty::Path(_, path) = *ty {
-            path.segments[0].ident.as_ref().to_owned()
-        } else {
-            panic!("Could not find impl ident");
-        };
+    let (msg_impl_generics, msg_ty_generics, msg_where_clause) = msg_types.split_for_impl();
+    let (o_impl_generics, o_ty_generics, o_where_clause) = src_impl.impl_generics.split_for_impl();
 
-        let message_name = syn::Ident::new(format!("{}Message", impl_name));
-        let mut method_generics = vec![];
-        let mut match_arms = quote!();
-        for method in items.iter().filter(|item| item.vis == syn::Visibility::Public) {
-            if let syn::ImplItemKind::Method(ref sig, _) = method.node {
-                let method_name = method.ident.clone();
-                let mut args: Vec<_> = sig.decl.inputs.iter().filter_map(|input| {
-                    if let &syn::FnArg::Captured(syn::Pat::Ident(_, ref id, _), ref ty) = input {
-                        Some((id, ty))
-                    } else {
-                        None
-                    }
-                }).collect();
+    let match_arms = route_match_arms(msg_name.clone(), src_impl.clone());
 
-
-                let sig_g = sig.generics.clone();
-                method_generics.push((sig_g.lifetimes, sig_g.ty_params, sig_g.where_clause.predicates));
-
-                let mut formatted_args = quote!();
-                let mut field_names = quote!();
-
-                for (i, (id, _)) in args.clone().into_iter().enumerate() {
-                    field_names.append(quote!(#id));
-                    if i < args.len() - 1 {
-                        field_names.append(quote!(, ));
-                    }
+    quote! {
+        impl #o_impl_generics #o_name #o_ty_generics #o_where_clause {
+            pub fn route_msg #msg_impl_generics (&mut self, msg: #msg_name #msg_ty_generics ) {
+                match msg {
+                    #match_arms
                 };
-
-                let mut field_mappings = args.clone().into_iter().fold(quote!(), |mut t, (id, _)| {
-                    t.append(quote!(#id: #id,));
-                    t
-                });
-
-                let fn_id = method.ident.clone();
-                let variant_id = method.ident.as_ref().to_owned();
-                let variant_id = syn::Ident::new(format!("{}{}Message", &variant_id[0..1].to_uppercase(), &variant_id[1..]));
-
-                let arm = quote!(#message_name::#variant_id { #field_mappings } => self.#fn_id(#field_names),);
-
-                match_arms.append(arm);
-            }
-        }
-
-        let mut lifetimes: Vec<_> = method_generics.iter().cloned().fold(Vec::new(), |mut a, g| {
-            a.extend_from_slice(&g.0[..]);
-            a
-        });
-        let mut ty_params: Vec<_> = method_generics.iter().cloned().fold(Vec::new(), |mut a, g| {
-            a.extend_from_slice(&g.1[..]);
-            a
-        });
-        let mut predicates: Vec<_> = method_generics.iter().cloned().fold(Vec::new(), |mut a, g| {
-            a.extend_from_slice(&g.2[..]);
-            a
-        });
-
-        let method_names: Vec<_> = items.iter().map(|item| item.ident.as_ref().to_owned()).collect();
-
-        let mut msg_ty_params: Vec<_> = ty_params.iter().cloned().zip(method_names.iter()).map(|(t, name)| syn::TyParam {
-            attrs: t.attrs,
-            ident: syn::Ident::new(format!("{}{}", name, t.ident.as_ref())),
-            bounds: t.bounds,
-            default: t.default
-        }).collect();
-
-        let msg_generics = syn::Generics {
-            lifetimes: lifetimes.clone(),
-            ty_params: msg_ty_params.clone(),
-            where_clause: syn::WhereClause { predicates: predicates.clone() }
-        };
-
-        let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-        let (msg_impl_generics, msg_ty_generics, msg_where_clause) = msg_generics.split_for_impl();
-
-        let impl_name = syn::Ident::new(impl_name);
-        return quote! {
-            impl #impl_generics #impl_name #ty_generics #where_clause {
-                pub fn route_msg #msg_impl_generics (&mut self, msg: #message_name #msg_ty_generics) {
-                    match msg {
-                        #match_arms
-                    };
-                }
             }
         }
     }
-
-    unimplemented!()
 }
 
-fn gen_actor_impl(source: String) -> quote::Tokens {
-    if let syn::ItemKind::Impl(unsafety, polarity, generics, path, ty, items) = syn::parse_item(&source).unwrap().node {
-        let mut methods = quote!();
+fn route_match_arms(msg_name: syn::Ident, src_impl: Impl) -> quote::Tokens {
+    src_impl.methods.into_iter().fold(quote!(), |mut q_acc, method| {
+        let variant_name = syn::Ident::new(format!("{}Variant", capitalize(method.name.as_ref())));
+        let mut args = quote!();
+        let mut variant_fields = method.signature.decl.inputs.iter()
+            .fold(quote!(), |mut variant_fields, arg| {
+                if let &syn::FnArg::Captured(syn::Pat::Ident(_, ref id, _), syn::Ty::Path(_, ref ty)) = arg {
+                    args.append(quote!(#id, ));
 
-
-        let impl_name = if let syn::Ty::Path(_, path) = *ty {
-            path.segments[0].ident.as_ref().to_owned()
-        } else {
-            panic!("Could not find impl ident");
-        };
-
-        let message_name = syn::Ident::new(format!("{}Message", impl_name));
-        let o_name = syn::Ident::new(impl_name.clone());
-        let impl_name = syn::Ident::new(format!("{}Actor", impl_name));
-
-        let mut method_generics = vec![];
-
-        for method in items.iter().filter(|item| item.vis == syn::Visibility::Public) {
-            if let syn::ImplItemKind::Method(ref sig, _) = method.node {
-                let method_name = method.ident.clone();
-
-                let mut args: Vec<_> = sig.decl.inputs.iter().filter_map(|input| {
-                    if let &syn::FnArg::Captured(syn::Pat::Ident(_, ref id, _), ref ty) = input {
-                        Some((id, ty))
-                    } else {
-                        None
-                    }
-                }).collect();
-
-
-                let sig_g = sig.generics.clone();
-                method_generics.push((sig_g.lifetimes, sig_g.ty_params, sig_g.where_clause.predicates));
-
-                let mut formatted_args = quote!();
-
-                let mut field_mappings = args.clone().into_iter().fold(quote!(), |mut t, (id, _)| {
-                    t.append(quote!(#id: #id,));
-                    t
+                    variant_fields.append(quote! {
+                    #id: #id,
                 });
-
-                for (i, arg) in args.iter().enumerate() {
-                    let (id, ty) = arg.clone();
-                    formatted_args.append(quote!(#id: #ty));
-                    if i < args.len() - 1 {
-                        formatted_args.append(quote!(,));
-                    }
                 }
+                variant_fields
+            });
 
-                let variant_id = method.ident.as_ref().to_owned();
-                let variant_id = syn::Ident::new(format!("{}{}Message", &variant_id[0..1].to_uppercase(), &variant_id[1..]));
-                let generics = sig.generics.clone();
-                let q = quote!(pub fn #method_name (&self, #formatted_args) {
-                    let msg = #message_name::#variant_id {
-                        #field_mappings
-                    };
+        let method_name = method.name;
 
-                    self.sender.send(msg);
-                });
-
-                methods.append(q);
-            }
-        }
-
-        let actor_generics = generics.clone();
-        let (actor_impl_generics, actor_ty_generics, actor_where_clause) = actor_generics.split_for_impl();
-
-        let mut lifetimes: Vec<_> = method_generics.iter().cloned().fold(Vec::new(), |mut a, g| {
-            a.extend_from_slice(&g.0[..]);
-            a
-        });
-        let mut ty_params: Vec<_> = method_generics.iter().cloned().fold(Vec::new(), |mut a, g| {
-            a.extend_from_slice(&g.1[..]);
-            a
-        });
-        let mut predicates: Vec<_> = method_generics.iter().cloned().fold(Vec::new(), |mut a, g| {
-            a.extend_from_slice(&g.2[..]);
-            a
-        });
-
-
-        let method_names: Vec<_> = items.iter().map(|item| item.ident.as_ref().to_owned()).collect();
-
-        let mut msg_ty_params: Vec<_> = ty_params.iter().cloned().zip(method_names.iter()).map(|(t, name)| syn::TyParam {
-            attrs: t.attrs,
-            ident: syn::Ident::new(format!("{}{}", name, t.ident.as_ref())),
-            bounds: t.bounds,
-            default: t.default
-        }).collect();
-
-        let msg_generics = syn::Generics {
-            lifetimes: lifetimes.clone(),
-            ty_params: msg_ty_params.clone(),
-            where_clause: syn::WhereClause { predicates: predicates.clone() }
+        let arm = quote! {
+            #msg_name :: #variant_name {
+                #variant_fields
+            } => self. #method_name ( #args ),
         };
 
-        let (msg_impl_generics, msg_ty_generics, msg_where_clause) = msg_generics.split_for_impl();
+        q_acc.append(arm);
+        q_acc
+    })
+}
 
-        lifetimes.extend_from_slice(&generics.lifetimes[..]);
-        ty_params.extend_from_slice(&generics.ty_params[..]);
-        predicates.extend_from_slice(&generics.where_clause.predicates[..]);
+fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
+    let o_generics = src_impl.impl_generics;
+    let o_name = src_impl.original_name.clone();
 
-        let generics = syn::Generics {
-            lifetimes: lifetimes.clone(),
-            ty_params: ty_params.clone(),
-            where_clause: syn::WhereClause { predicates: predicates.clone() }
-        };
+    let actor_name = syn::Ident::new(format!("{}Actor", src_impl.original_name.clone()));
+    let msg_name = syn::Ident::new(format!("{}Message", src_impl.original_name));
+    let msg_types = gen_msg_types(src_impl.methods.clone());
 
-        let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+    let (msg_impl_generics, msg_ty_generics, msg_where_clause) = msg_types.split_for_impl();
 
-        //        let (mut new_impl_generics, mut new_ty_generics, mut new_where_clause) = actor_generics.split_for_impl();
+    let (o_impl_generics, o_ty_generics, o_where_clause) = o_generics.split_for_impl();
 
-        let mut new_generics = actor_generics.clone();
-        new_generics.ty_params.push(syn::TyParam {
-            attrs: vec![],
-            ident: syn::Ident::new("H"),
-            bounds: vec![],
-            default: None
-        });
+    // Remove the <>'s around any parameters that may exist
+    let s = quote!(#o_impl_generics).to_string();
+    let h_o_impl_generics = if s.is_empty() {
+        quote!(H: Send + fibers::Spawn + Clone + 'static)
+    } else {
+        let s = syn::Ident::new(&s[1..s.len() - 1]);
+        quote!(#s, H: Foo + Bar)
+    };
 
+    quote! {
+        extern crate two_lock_queue;
+        extern crate fibers;
+        extern crate futures;
+        use futures::future::*;
+        use two_lock_queue::{unbounded, Sender, Receiver, TryRecvError};
 
-        let (new_impl_generics, _, _) = new_generics.split_for_impl();
+        impl #msg_impl_generics #actor_name #msg_ty_generics #msg_where_clause {
 
-        return quote! {
-            extern crate two_lock_queue;
-            extern crate fibers;
-            extern crate futures;
-            use futures::future::*;
-            use two_lock_queue::{unbounded, Sender, Receiver, TryRecvError};
-
-            impl #msg_impl_generics #impl_name #msg_ty_generics #msg_where_clause {
-                pub fn new #new_impl_generics(handle: H, mut actor: #o_name #actor_ty_generics) -> #impl_name #msg_ty_generics
-                where H: Send + fibers::Spawn + Clone + 'static
-                 {
+            pub fn new <#h_o_impl_generics> (handle: H, actor: #o_name #o_ty_generics) -> #actor_name #msg_ty_generics
+                #o_where_clause {
+                    let mut actor = actor;
                     let (sender, receiver) = unbounded();
                     let id = "random string".to_owned();
 
@@ -408,21 +267,14 @@ fn gen_actor_impl(source: String) -> quote::Tokens {
                         })
                     }));
 
-                    #impl_name {
+                    #actor_name {
                         sender: sender,
                         receiver: receiver,
                         id: id
                     }
                 }
-
-                #methods
-            }
-        };
-    } else {
-        panic!("Actor derive only works on impl blocks")
+        }
     }
-
-    unimplemented!()
 }
 
 ///struct FooActor<MT, MU> {
@@ -440,80 +292,9 @@ fn gen_actor_struct(src_impl: Impl) -> quote::Tokens {
 
     quote! {
         pub struct #actor_name #impl_generics #where_clause {
-            sender: Sender #msg_name #ty_generics,
-            receiver: Receiver #msg_name #ty_generics,
+            sender: Sender < #msg_name #ty_generics >,
+            receiver: Receiver < #msg_name #ty_generics >,
             id: String
         }
-    }
-}
-
-fn old_gen_actor_struct(source: String) -> quote::Tokens {
-    if let syn::ItemKind::Impl(unsafety, polarity, generics, path, ty, items) = syn::parse_item(&source).unwrap().node {
-        let (actor_name, msg_name) = if let syn::Ty::Path(_, path) = *ty {
-            (syn::Ident::new(format!("{}Actor", path.segments[0].ident.as_ref())), syn::Ident::new(format!("{}Message", path.segments[0].ident.as_ref())))
-        } else {
-            panic!("Could not find impl ident");
-        };
-
-        let mut method_generics = vec![];
-
-        for item in items.iter().filter(|item| item.vis == syn::Visibility::Public) {
-            if let syn::ImplItemKind::Method(ref sig, _) = item.node {
-                let sig_g = sig.generics.clone();
-                method_generics.push((sig_g.lifetimes, sig_g.ty_params, sig_g.where_clause.predicates));
-            }
-        }
-
-        let mut lifetimes: Vec<_> = method_generics.iter().cloned().fold(Vec::new(), |mut a, g| {
-            a.extend_from_slice(&g.0[..]);
-            a
-        });
-        let mut ty_params: Vec<_> = method_generics.iter().cloned().fold(Vec::new(), |mut a, g| {
-            a.extend_from_slice(&g.1[..]);
-            a
-        });
-        let mut predicates: Vec<_> = method_generics.iter().cloned().fold(Vec::new(), |mut a, g| {
-            a.extend_from_slice(&g.2[..]);
-            a
-        });
-
-        let method_names: Vec<_> = items.iter().map(|item| item.ident.as_ref().to_owned()).collect();
-
-        let mut msg_ty_params: Vec<_> = ty_params.iter().cloned().zip(method_names.iter()).map(|(t, name)| syn::TyParam {
-            attrs: t.attrs,
-            ident: syn::Ident::new(format!("{}{}", name, t.ident.as_ref())),
-            bounds: t.bounds,
-            default: t.default
-        }).collect();
-
-        let msg_generics = syn::Generics {
-            lifetimes: lifetimes.clone(),
-            ty_params: msg_ty_params.clone(),
-            where_clause: syn::WhereClause { predicates: predicates.clone() }
-        };
-
-        lifetimes.extend_from_slice(&generics.lifetimes[..]);
-        ty_params.extend_from_slice(&generics.ty_params[..]);
-        predicates.extend_from_slice(&generics.where_clause.predicates[..]);
-
-        let generics = syn::Generics {
-            lifetimes,
-            ty_params,
-            where_clause: syn::WhereClause { predicates }
-        };
-
-        let (msg_impl_generics, msg_ty_generics, msg_where_clause) = msg_generics.split_for_impl();
-
-        let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-
-        quote! {
-            pub struct #actor_name #msg_generics #msg_where_clause {
-                sender: Sender<#msg_name #msg_ty_generics>,
-                receiver: Receiver<#msg_name #msg_ty_generics>,
-                id: String,
-            }
-        }
-    } else {
-        panic!("Actor derive only owrks on impl blocks")
     }
 }

@@ -17,7 +17,7 @@ pub struct PrintLogger {
 
 #[derive_actor]
 impl PrintLogger {
-    pub fn info<T: Debug + Send + 'static>(&self, data: T) {
+    pub fn info<T: Debug + Send + 'static>(&self, data: T, msg: u64) {
         println!("{:?}", data);
     }
 

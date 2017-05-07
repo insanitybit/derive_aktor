@@ -20,7 +20,7 @@ use fibers::{Executor, ThreadPoolExecutor};
 pub struct PrintLogger {}
 
 impl PrintLogger {
-    pub fn info<T: Debug + Send + 'static>(&self, data: T) {
+    pub fn info<T: Debug + Send + 'static>(&self, data: T, msg: u64) {
 
 
 
@@ -55,13 +55,13 @@ impl PrintLogger {
                                                    }));
     }
 }
-pub enum PrintLoggerMessage<infoT: Debug + Send + 'static, errorU: Debug + Send + 'static> {
-    InfoMessage { data: T },
-    ErrorMessage { data: U },
+enum PrintLoggerMessage<InfoT: Debug + Send + 'static, ErrorU: Debug + Send + 'static> {
+    InfoVariant { data: InfoT, msg: u64 },
+    ErrorVariant { data: ErrorU },
 }
-pub struct PrintLoggerActor<infoT: Debug + Send + 'static, errorU: Debug + Send + 'static> {
-    sender: Sender<PrintLoggerMessage<infoT, errorU>>,
-    receiver: Receiver<PrintLoggerMessage<infoT, errorU>>,
+pub struct PrintLoggerActor<InfoT: Debug + Send + 'static, ErrorU: Debug + Send + 'static> {
+    sender: Sender<PrintLoggerMessage<InfoT, ErrorU>>,
+    receiver: Receiver<PrintLoggerMessage<InfoT, ErrorU>>,
     id: String,
 }
 extern crate two_lock_queue;
@@ -69,11 +69,12 @@ extern crate fibers;
 extern crate futures;
 use futures::future::*;
 use two_lock_queue::{unbounded, Sender, Receiver, TryRecvError};
-impl<infoT: Debug + Send + 'static, errorU: Debug + Send + 'static> PrintLoggerActor<infoT,
-    errorU> {
-    pub fn new<H>(handle: H, mut actor: PrintLogger) -> PrintLoggerActor<infoT, errorU>
-        where H: Send + fibers::Spawn + Clone + 'static
-    {
+impl<InfoT: Debug + Send + 'static, ErrorU: Debug + Send + 'static> PrintLoggerActor<InfoT,
+    ErrorU> {
+    pub fn new<H: Send + fibers::Spawn + Clone + 'static>(handle: H,
+                                                          actor: PrintLogger)
+                                                          -> PrintLoggerActor<InfoT, ErrorU> {
+        let mut actor = actor;
         let (sender, receiver) = unbounded();
         let id = "random string".to_owned();
         let recvr = receiver.clone();
@@ -93,22 +94,12 @@ impl<infoT: Debug + Send + 'static, errorU: Debug + Send + 'static> PrintLoggerA
             id: id,
         }
     }
-    pub fn info(&self, data: T) {
-        let msg = PrintLoggerMessage::InfoMessage { data: data };
-        self.sender.send(msg);
-    }
-    pub fn error(&self, data: U) {
-        let msg = PrintLoggerMessage::ErrorMessage { data: data };
-        self.sender.send(msg);
-    }
 }
 impl PrintLogger {
-    pub fn route_msg<infoT: Debug + Send + 'static, errorU: Debug + Send +
-    'static>(&mut self,
-             msg: PrintLoggerMessage<infoT, errorU>) {
+    pub fn route_msg(&mut self, msg: PrintLoggerMessage<InfoT, ErrorU>) {
         match msg {
-            PrintLoggerMessage::InfoMessage { data: data } => self.info(data),
-            PrintLoggerMessage::ErrorMessage { data: data } => self.error(data),
+            PrintLoggerMessage::InfoVariant { data: data, msg: msg } => self.info(data, msg),
+            PrintLoggerMessage::ErrorVariant { data: data } => self.error(data),
         };
     }
 }
