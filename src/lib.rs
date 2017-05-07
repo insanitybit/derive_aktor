@@ -33,12 +33,14 @@ pub fn derive_actor(args: TokenStream, input: TokenStream) -> TokenStream {
 
     //    // Generate enum for communicating with Actor
     let actor_message = gen_message(src_impl.clone());
-    //
-    //    // The actor Struct will take a type Foo and become an ActorFoo. It will have an impl with a
-    //    // 'new' that takes a Foo and returns an ActorFoo. It will hand that Actor to a thread/ fiber,
-    //    // It will also hand a receiver to the fiber. The fiber will then repeatedly call 'on_message'
-    //    // on the Foo, handing it messages off of the queue.
-    //    let actor_struct = gen_actor_struct(source.clone());
+
+    // The actor Struct will take a type Foo and become an ActorFoo. It will have an impl with a
+    // 'new' that takes a Foo and returns an ActorFoo. It will hand that Actor to a thread/ fiber,
+    // It will also hand a receiver to the fiber. The fiber will then repeatedly call 'on_message'
+    // on the Foo, handing it messages off of the queue.
+    let actor_struct = gen_actor_struct(src_impl.clone());
+
+    println!("{:#?}", actor_struct);
     //
     //    let actor_impl = gen_actor_impl(source.clone());
     //
@@ -89,33 +91,29 @@ fn gen_message(src_impl: Impl) -> quote::Tokens {
     let message_name = syn::Ident::new(format!("{}Message", capitalize(src_impl.original_name.as_ref())));
 
     // Generate generics for the enum
-    let generic_types = gen_enum_types(src_impl.methods.clone());
-
+    let generic_types = gen_msg_types(src_impl.methods.clone());
     let variants = gen_variants(src_impl.methods.clone());
 
-    println!("{:#?}", quote!(enum #message_name #generic_types {
+    quote!(enum #message_name #generic_types {
         #variants
-    }));
-    unimplemented!()
+    })
 }
 
 fn gen_variants(methods: Vec<Method>) -> quote::Tokens {
     methods.into_iter().fold(quote!(), |mut q_acc, method| {
         let variant_name = syn::Ident::new(format!("{}Variant", capitalize(method.name.as_ref())));
-        let mut variant_fields = quote!();
 
-        for arg in method.signature.decl.inputs.iter() {
-            if let &syn::FnArg::Captured(syn::Pat::Ident(_, ref id, _), ref ty) = arg {
-//                    let arg_name = id;
+        let mut variant_fields = method.signature.decl.inputs.iter()
+            .fold(quote!(), |mut variant_fields, arg|  {
+            if let &syn::FnArg::Captured(syn::Pat::Ident(_, ref id, _), syn::Ty::Path(_, ref ty)) = arg {
+                let typ = syn::Ident::new(format!("{}{}", capitalize(method.name.as_ref()), ty.segments[0].ident.as_ref()));
+
                 variant_fields.append(quote!{
-                    #id: #id,
+                    #id: #typ,
                 });
-//
-//                    variant_fields.append(quote!(""));
-//                    println!("{:#?}\n\n{:#?}\n==", id.as_ref(), ty);
-//                    println!("{}", variant_id);
             }
-        }
+            variant_fields
+        });
 
         let variant = quote! {
             #variant_name {
@@ -129,7 +127,7 @@ fn gen_variants(methods: Vec<Method>) -> quote::Tokens {
 }
 
 /// Flattens a Vec of Method into a single generic encompassing each method's generic parameters
-fn gen_enum_types(methods: Vec<Method>) -> syn::Generics {
+fn gen_msg_types(methods: Vec<Method>) -> syn::Generics {
     methods.into_iter().map(|method| {
         let ty_params = method.signature.generics.ty_params.iter().cloned().map(|typ| syn::TyParam {
             attrs: typ.attrs,
@@ -152,7 +150,7 @@ fn gen_enum_types(methods: Vec<Method>) -> syn::Generics {
             acc.lifetimes.extend_from_slice(&g.lifetimes[..]);
             acc.ty_params.extend_from_slice(&g.ty_params[..]);
             acc.where_clause.predicates.extend_from_slice(&g.where_clause.predicates[..]);
-            g
+            acc
         })
 }
 
@@ -161,114 +159,6 @@ fn capitalize(s: &str) -> String {
 
     format!("{}{}", char_0, &s[1..])
 }
-
-fn old_gen_message(source: String) -> syn::Item {
-    if let syn::ItemKind::Impl(unsafety, polarity, generics, path, ty, items) = syn::parse_item(&source).unwrap().node {
-        let impl_name = if let syn::Ty::Path(_, path) = *ty {
-            path.segments[0].ident.as_ref().to_owned()
-        } else {
-            panic!("Could not find impl ident");
-        };
-        let mut variants = vec![];
-        let message_name = format!("{}Message", impl_name);
-
-        let mut method_generics = vec![];
-
-        for item in items.iter().filter(|item| item.vis == syn::Visibility::Public) {
-            if let syn::ImplItemKind::Method(ref sig, _) = item.node {
-                let variant_id = item.ident.as_ref().to_owned();
-                let variant_id = syn::Ident::new(format!("{}{}Message", &variant_id[0..1].to_uppercase(), &variant_id[1..]));
-
-                let sig_g = sig.generics.clone();
-                method_generics.push((sig_g.lifetimes, sig_g.ty_params, sig_g.where_clause.predicates));
-
-                let mut variant_fields = vec![];
-                for (id, ty) in sig.decl.inputs.iter().filter_map(|input| {
-                    if let &syn::FnArg::Captured(syn::Pat::Ident(_, ref id, _), ref ty) = input {
-                        Some((id, ty))
-                    } else {
-                        None
-                    }
-                }) {
-                    //                    let ty = syn::TyParam {
-                    //                        attrs: ty.attrs,
-                    //                        ident: syn::Ident::new(format!("{}{}", item.ident.as_ref(), ty.ident.as_ref())),
-                    //                        bounds: ty.bounds,
-                    //                        default: ty.default
-                    //                    };
-
-                    let field = syn::Field {
-                        ident: Some(id.clone()),
-                        vis: syn::Visibility::Inherited,
-                        attrs: vec![],
-                        ty: ty.clone()
-                    };
-
-                    variant_fields.push(field);
-                }
-                let variant_data = syn::VariantData::Struct(variant_fields);
-
-                let variant = syn::Variant {
-                    ident: variant_id,
-                    attrs: vec![],
-                    data: variant_data,
-                    discriminant: None
-                };
-                variants.push(variant);
-            }
-        }
-
-        let mut lifetimes: Vec<_> = method_generics.iter().cloned().fold(Vec::new(), |mut a, g| {
-            a.extend_from_slice(&g.0[..]);
-            a
-        });
-        let mut ty_params: Vec<_> = method_generics.iter().cloned().fold(Vec::new(), |mut a, g| {
-            a.extend_from_slice(&g.1[..]);
-            a
-        });
-        let mut predicates: Vec<_> = method_generics.iter().cloned().fold(Vec::new(), |mut a, g| {
-            a.extend_from_slice(&g.2[..]);
-            a
-        });
-
-
-        let method_names: Vec<_> = items.iter().map(|item| item.ident.as_ref().to_owned()).collect();
-
-        let mut msg_ty_params: Vec<_> = ty_params.iter().cloned().zip(method_names.iter()).map(|(t, name)| syn::TyParam {
-            attrs: t.attrs,
-            ident: syn::Ident::new(format!("{}{}", name, t.ident.as_ref())),
-            bounds: t.bounds,
-            default: t.default
-        }).collect();
-
-        let msg_generics = syn::Generics {
-            lifetimes: lifetimes.clone(),
-            ty_params: msg_ty_params.clone(),
-            where_clause: syn::WhereClause { predicates: predicates.clone() }
-        };
-
-        lifetimes.extend_from_slice(&generics.lifetimes[..]);
-        ty_params.extend_from_slice(&generics.ty_params[..]);
-        predicates.extend_from_slice(&generics.where_clause.predicates[..]);
-
-        let generics = syn::Generics {
-            lifetimes,
-            ty_params,
-            where_clause: syn::WhereClause { predicates }
-        };
-
-        let message_enum = syn::ItemKind::Enum(variants, msg_generics);
-        syn::Item {
-            ident: syn::Ident::new(message_name),
-            vis: syn::Visibility::Public,
-            attrs: vec![],
-            node: message_enum,
-        }
-    } else {
-        panic!("")
-    }
-}
-
 
 fn gen_route_msg(source: String) -> quote::Tokens {
     if let syn::ItemKind::Impl(unsafety, polarity, generics, path, ty, items) = syn::parse_item(&source).unwrap().node {
@@ -535,7 +425,29 @@ fn gen_actor_impl(source: String) -> quote::Tokens {
     unimplemented!()
 }
 
-fn gen_actor_struct(source: String) -> quote::Tokens {
+///struct FooActor<MT, MU> {
+///    sender: Sender<MT>,
+///    receiver: Receiver<MT>,
+///
+///}
+
+fn gen_actor_struct(src_impl: Impl) -> quote::Tokens {
+    let actor_name = syn::Ident::new(format!("{}Actor", src_impl.original_name));
+    let msg_name = syn::Ident::new(format!("{}Message", src_impl.original_name));
+    let msg_types = gen_msg_types(src_impl.methods.clone());
+
+    let (impl_generics, ty_generics, where_clause) = msg_types.split_for_impl();
+
+    quote! {
+        pub struct #actor_name #impl_generics #where_clause {
+            sender: Sender #msg_name #ty_generics,
+            receiver: Receiver #msg_name #ty_generics,
+            id: String
+        }
+    }
+}
+
+fn old_gen_actor_struct(source: String) -> quote::Tokens {
     if let syn::ItemKind::Impl(unsafety, polarity, generics, path, ty, items) = syn::parse_item(&source).unwrap().node {
         let (actor_name, msg_name) = if let syn::Ty::Path(_, path) = *ty {
             (syn::Ident::new(format!("{}Actor", path.segments[0].ident.as_ref())), syn::Ident::new(format!("{}Message", path.segments[0].ident.as_ref())))
