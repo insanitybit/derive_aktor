@@ -92,7 +92,7 @@ fn gen_message(src_impl: Impl) -> quote::Tokens {
     let generic_types = gen_msg_types(src_impl.methods.clone());
     let variants = gen_variants(src_impl.methods.clone());
 
-    quote!(enum #message_name #generic_types {
+    quote!(pub enum #message_name #generic_types {
         #variants
     })
 }
@@ -236,7 +236,7 @@ fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
         quote!(H: Send + fibers::Spawn + Clone + 'static)
     } else {
         let s = syn::Ident::new(&s[1..s.len() - 1]);
-        quote!(#s, H: Foo + Bar)
+        quote!(#s, H: Send + fibers::Spawn + Clone + 'static)
     };
 
     quote! {
