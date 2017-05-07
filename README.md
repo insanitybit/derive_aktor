@@ -14,9 +14,10 @@ using strongly typed, compile time generated interfaces.
     * Generate Actor structure (Done)
     * Generate Actor Impl (Done)
     * Generate 'route_message' impl (Done)
-    * Support generics (In Progress - no support for Where Clauses currently)
-    * Automate return values being handled by closures
+    * Support generics (Done)
+    * Automate return values being handled by closures (Next up)
     * Actors from Traits
+    * Supervisors
 
 With the current state of the crate, the following code is representative of the experience using this library:
 
