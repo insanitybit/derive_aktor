@@ -121,6 +121,7 @@ fn main() {
     log_actor.error("error!!");
 
     system.run();
-}```
+}
+```
 
-You would then generate FooActor's, rather than Foo's, but you would work with a very similar interface.
+You would then generate `FooActor`s, rather than `Foo`s, but you would work with a very similar interface.
