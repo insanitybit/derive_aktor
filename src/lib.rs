@@ -14,7 +14,31 @@ use two_lock_queue::{unbounded, Sender, Receiver, TryRecvError};
 #[derive(Debug, Clone)]
 struct Method {
     pub name: syn::Ident,
-    pub signature: syn::MethodSig,
+    pub signature: syn::MethodSig
+}
+
+impl Method {
+    fn return_type(&self) -> &syn::FunctionRetTy {
+        return &self.signature.decl.output;
+    }
+
+    fn wrapped_return_type(&self) -> Option<syn::Ty> {
+        match self.return_type() {
+            &syn::FunctionRetTy::Default => None,
+            &syn::FunctionRetTy::Ty(ref t) => Some(syn::parse::ty(
+                quote!(::futures::sync::oneshot::Receiver< #t >).to_string().as_str()
+            ).expect("could not parse type"))
+        }
+    }
+
+    fn wrapped_return_type_sender(&self) -> Option<syn::Ty> {
+        match self.return_type() {
+            &syn::FunctionRetTy::Default => None,
+            &syn::FunctionRetTy::Ty(ref t) => Some(syn::parse::ty(
+                quote!(::futures::sync::oneshot::Sender< #t >).to_string().as_str()
+            ).expect("could not parse type"))
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -105,7 +129,6 @@ fn gen_variants(methods: Vec<Method>) -> quote::Tokens {
         let mut variant_fields = method.signature.decl.inputs.iter()
             .fold(quote!(), |mut variant_fields, arg| {
                 if let &syn::FnArg::Captured(syn::Pat::Ident(_, ref id, _), syn::Ty::Path(_, ref ty)) = arg {
-
                     // If we have a generic type we need to mangle it
                     let typ = if generic_idents.contains(&ty.segments[0].ident) {
                         syn::Ident::new(format!("{}{}", capitalize(method.name.as_ref()), ty.segments[0].ident.as_ref()))
@@ -115,11 +138,17 @@ fn gen_variants(methods: Vec<Method>) -> quote::Tokens {
 
 
                     variant_fields.append(quote! {
-                    #id: #typ,
-                });
+                        #id: #typ,
+                    });
                 }
                 variant_fields
             });
+
+        if let Some(typ) = method.wrapped_return_type_sender() {
+            variant_fields.append(quote! {
+                __return: #typ,
+            });
+        }
 
         let variant = quote! {
             #variant_name {
@@ -198,18 +227,34 @@ fn route_match_arms(msg_name: syn::Ident, src_impl: Impl) -> quote::Tokens {
                     args.append(quote!(#id, ));
 
                     variant_fields.append(quote! {
-                    #id: #id,
-                });
+                        #id: #id,
+                    });
                 }
                 variant_fields
             });
 
+        let mut has_return = false;
+        if let Some(typ) = method.wrapped_return_type_sender() {
+            has_return = true;
+            variant_fields.append(quote! {
+                __return: __return,
+            });
+        }
+
         let method_name = method.name;
 
-        let arm = quote! {
-            #msg_name :: #variant_name {
-                #variant_fields
-            } => self. #method_name ( #args ),
+        let arm = if has_return {
+            quote! {
+                #msg_name :: #variant_name {
+                    #variant_fields
+                } => __return.complete(self. #method_name ( #args )),
+            }
+        } else {
+            quote! {
+                #msg_name :: #variant_name {
+                    #variant_fields
+                } => self. #method_name ( #args ),
+            }
         };
 
         q_acc.append(arm);
@@ -281,9 +326,8 @@ fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
 }
 
 
-// fn foo<T: Bar>(baz: T)
+// fn foo<T: Bar>(baz: T) -> BoxedFuture<R>
 fn gen_actor_methods(src_impl: Impl) -> quote::Tokens {
-
     let mut actor_methods = quote!();
 
     for method in src_impl.methods.clone() {
@@ -304,8 +348,8 @@ fn gen_actor_methods(src_impl: Impl) -> quote::Tokens {
                     args.append(quote!(#id: #typ, ));
 
                     variant_fields.append(quote! {
-                    #id: #id,
-                });
+                        #id: #id,
+                    });
                 }
                 variant_fields
             });
@@ -314,14 +358,26 @@ fn gen_actor_methods(src_impl: Impl) -> quote::Tokens {
         let msg_name = syn::Ident::new(format!("{}Message", src_impl.original_name));
         let variant_name = syn::Ident::new(format!("{}Variant", capitalize(method.name.as_ref())));
 
-        let method = quote! {
-            pub fn #method_name ( &self, #args ) {
-                let msg = #msg_name :: #variant_name { #variant_fields };
-                self.sender.send( msg );
+        let transformed_type = method.wrapped_return_type();
+
+        let method = if let Some(transformed_type) = transformed_type {
+            quote! {
+                pub fn #method_name ( &self, #args ) -> #transformed_type {
+                    let (sender, future) = ::futures::sync::oneshot::channel();
+                    let msg = #msg_name :: #variant_name { #variant_fields __return: sender };
+                    self.sender.send( msg );
+                    future
+                }
+            }
+        } else {
+            quote! {
+                pub fn #method_name ( &self, #args ) {
+                    let msg = #msg_name :: #variant_name { #variant_fields };
+                    self.sender.send( msg );
+                }
             }
         };
         actor_methods.append(method);
-
     }
 
     actor_methods
