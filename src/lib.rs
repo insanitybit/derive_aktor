@@ -326,7 +326,7 @@ fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
 }
 
 
-// fn foo<T: Bar>(baz: T) -> BoxedFuture<R>
+// fn foo<T: Bar>(baz: T) -> oneshot::Receiver<R>
 fn gen_actor_methods(src_impl: Impl) -> quote::Tokens {
     let mut actor_methods = quote!();
 
