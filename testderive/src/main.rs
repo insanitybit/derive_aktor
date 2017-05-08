@@ -19,9 +19,8 @@ impl PrintLogger {
         return 0;
     }
 
-    pub fn error<T: Debug + Send + 'static>(&self, data: T) -> i32 {
+    pub fn error<T: Debug + Send + 'static>(&self, data: T) {
         println!("{:?}", data);
-        return -1;
     }
 }
 
@@ -32,17 +31,15 @@ fn main() {
     let log_actor = PrintLoggerActor::new(system.handle(), logger);
 
     let zero_future = log_actor.info("info log");
-    let minus_one_future = log_actor.error("error!!".to_owned());
+    log_actor.error("error!!".to_owned());
 
     std::thread::spawn(|| system.run());
 
     let zero = zero_future.wait().expect("zero canceled");
-    let minus_one = minus_one_future.wait().expect("minus one canceled");
 
     assert!(zero == 0);
-    assert!(minus_one == -1);
 
-    println!("zero: {}, minus one: {}", zero, minus_one);
+    println!("zero: {}", zero);
 }
 
 #[test]
