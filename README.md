@@ -14,7 +14,7 @@ using strongly typed, compile time generated interfaces.
     * Generate Actor structure (Done)
     * Generate Actor Impl (Done)
     * Generate 'route_message' impl (Done)
-    * Support generics (Done)
+    * Support generics (Nope, pass)
     * Automate return values being handled by closures (Next up)
     * Actors from Traits
     * Supervisors
