@@ -256,13 +256,12 @@ fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
                                 match recvr.recv_timeout(std::time::Duration::from_secs(30)) {
                                     Ok(msg) => {
                                         actor.route_msg(msg);
-                                        continue
                                     }
                                     Err(two_lock_queue::RecvTimeoutError::Disconnected) => {
                                         break
                                     }
                                     Err(two_lock_queue::RecvTimeoutError::Timeout) => {
-                                        continue
+                                        actor.on_timeout()
                                     }
                                 }
                             }
