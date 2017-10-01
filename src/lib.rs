@@ -242,6 +242,14 @@ fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
 
                     let recvr = receiver.clone();
 
+                    let actor_ref = #actor_name {
+                        sender: sender,
+                        receiver: receiver,
+                        id: id
+                    };
+
+                    actor.init(actor_ref.clone());
+
                     std::thread::spawn(
                         move || {
                             loop {
@@ -259,12 +267,7 @@ fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
                                 }
                             }
                         });
-
-                    #actor_name {
-                        sender: sender,
-                        receiver: receiver,
-                        id: id
-                    }
+                    actor_ref
                 }
 
             #actor_methods
@@ -333,6 +336,7 @@ fn gen_actor_struct(src_impl: Impl) -> quote::Tokens {
     let (impl_generics, ty_generics, where_clause) = msg_types.split_for_impl();
 
     quote! {
+        #[derive(Clone)]
         pub struct #actor_name #impl_generics #where_clause {
             sender: two_lock_queue::Sender < #msg_name #ty_generics >,
             receiver: two_lock_queue::Receiver < #msg_name #ty_generics >,
