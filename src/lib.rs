@@ -237,7 +237,7 @@ fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
             pub fn new <#o_impl_generics> (actor: #o_name #o_ty_generics) -> #actor_name #msg_ty_generics
                 #o_where_clause {
                     let mut actor = actor;
-                    let (sender, receiver) = unbounded();
+                    let (sender, receiver) = two_lock_queue::unbounded();
                     let id = "random string".to_owned();
 
                     let recvr = receiver.clone();
@@ -334,8 +334,8 @@ fn gen_actor_struct(src_impl: Impl) -> quote::Tokens {
 
     quote! {
         pub struct #actor_name #impl_generics #where_clause {
-            sender: Sender < #msg_name #ty_generics >,
-            receiver: Receiver < #msg_name #ty_generics >,
+            sender: two_lock_queue::Sender < #msg_name #ty_generics >,
+            receiver: two_lock_queue::Receiver < #msg_name #ty_generics >,
             id: String
         }
     }
