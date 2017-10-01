@@ -234,7 +234,7 @@ fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
     quote! {
         impl #msg_impl_generics #actor_name #msg_ty_generics #msg_where_clause {
 
-            pub fn new <#o_impl_generics> (actor: #o_name #o_ty_generics) -> #actor_name #msg_ty_generics
+            pub fn new <#o_impl_generics> (actor: #o_name #o_ty_generics, timeout: std::time::Duration) -> #actor_name #msg_ty_generics
                 #o_where_clause {
                     let mut actor = actor;
                     let (sender, receiver) = two_lock_queue::unbounded();
@@ -253,7 +253,7 @@ fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
                     std::thread::spawn(
                         move || {
                             loop {
-                                match recvr.recv_timeout(std::time::Duration::from_secs(30)) {
+                                match recvr.recv_timeout(timeout) {
                                     Ok(msg) => {
                                         actor.route_msg(msg);
                                     }
