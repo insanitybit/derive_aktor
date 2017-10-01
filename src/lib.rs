@@ -229,27 +229,12 @@ fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
 
     let (o_impl_generics, o_ty_generics, o_where_clause) = o_generics.split_for_impl();
 
-    // Remove the <>'s around any parameters that may exist
-    let s = quote!(#o_impl_generics).to_string();
-    let h_o_impl_generics = if s.is_empty() {
-        quote!(H: Send + fibers::Spawn + Clone + 'static)
-    } else {
-        let s = syn::Ident::new(&s[1..s.len() - 1]);
-        quote!(#s, H: Send + fibers::Spawn + Clone + 'static)
-    };
-
     let actor_methods = gen_actor_methods(src_impl.clone());
 
     quote! {
-        extern crate two_lock_queue;
-        extern crate fibers;
-        extern crate futures;
-        use futures::future::*;
-        use two_lock_queue::{unbounded, Sender, Receiver, TryRecvError};
-
         impl #msg_impl_generics #actor_name #msg_ty_generics #msg_where_clause {
 
-            pub fn new <#h_o_impl_generics> (handle: H, actor: #o_name #o_ty_generics) -> #actor_name #msg_ty_generics
+            pub fn new <#o_impl_generics> (actor: #o_name #o_ty_generics) -> #actor_name #msg_ty_generics
                 #o_where_clause {
                     let mut actor = actor;
                     let (sender, receiver) = unbounded();
@@ -257,16 +242,23 @@ fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
 
                     let recvr = receiver.clone();
 
-                    handle.spawn(futures::lazy(move || {
-                        loop_fn(0, move |_| match recvr.try_recv() {
-                            Ok(msg) => {
-                                actor.route_msg(msg);
-                                Ok::<_, _>(futures::future::Loop::Continue(0))
+                    std::thread::spawn(
+                        move || {
+                            loop {
+                                match recvr.recv_timeout(std::time::Duration::from_secs(30)) {
+                                    Ok(msg) => {
+                                        actor.route_msg(msg);
+                                        continue
+                                    }
+                                    Err(two_lock_queue::RecvTimeoutError::Disconnected) => {
+                                        break
+                                    }
+                                    Err(two_lock_queue::RecvTimeoutError::Timeout) => {
+                                        continue
+                                    }
+                                }
                             }
-                            Err(TryRecvError::Disconnected) => Ok::<_, _>(futures::future::Loop::Break(())),
-                            Err(TryRecvError::Empty) => Ok::<_, _>(futures::future::Loop::Continue(0)),
-                        })
-                    }));
+                        });
 
                     #actor_name {
                         sender: sender,
