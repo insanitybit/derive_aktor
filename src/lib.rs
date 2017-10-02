@@ -1,3 +1,4 @@
+#![allow(non_shorthand_field_patterns)]
 #![recursion_limit = "1024"]
 #![feature(proc_macro)]
 extern crate two_lock_queue;
