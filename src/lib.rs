@@ -1,4 +1,3 @@
-#![allow(non_shorthand_field_patterns)]
 #![recursion_limit = "1024"]
 #![feature(proc_macro)]
 extern crate two_lock_queue;
@@ -91,7 +90,7 @@ fn gen_message(src_impl: Impl) -> quote::Tokens {
     // Generate generics for the enum
     let generic_types = gen_msg_types(src_impl.methods.clone());
     let variants = gen_variants(src_impl.methods.clone());
-
+    #[allow(non_shorthand_field_patterns)]
     quote!(pub enum #message_name #generic_types {
         #variants
     })
@@ -180,6 +179,7 @@ fn gen_route_msg(src_impl: Impl) -> quote::Tokens {
 
     quote! {
         impl #o_impl_generics #o_name #o_ty_generics #o_where_clause {
+            #[allow(non_shorthand_field_patterns)]
             pub fn route_msg #msg_impl_generics (&mut self, msg: #msg_name #msg_ty_generics ) {
                 match msg {
                     #match_arms
