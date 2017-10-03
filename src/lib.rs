@@ -239,14 +239,11 @@ fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
                 #o_where_clause {
                     let mut actor = actor;
                     let (sender, receiver) = two_lock_queue::unbounded();
-                    let id = "random string".to_owned();
 
                     let recvr = receiver.clone();
 
                     let actor_ref = #actor_name {
                         sender: sender,
-                        receiver: receiver,
-                        id: id
                     };
 
                     actor.init(actor_ref.clone());
@@ -339,8 +336,6 @@ fn gen_actor_struct(src_impl: Impl) -> quote::Tokens {
         #[derive(Clone)]
         pub struct #actor_name #impl_generics #where_clause {
             sender: two_lock_queue::Sender < #msg_name #ty_generics >,
-            receiver: two_lock_queue::Receiver < #msg_name #ty_generics >,
-            id: String
         }
     }
 }
