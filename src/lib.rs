@@ -1,15 +1,15 @@
 #![recursion_limit = "1024"]
 #![feature(proc_macro)]
-extern crate two_lock_queue;
+
 #[macro_use]
 extern crate quote;
 extern crate proc_macro;
 extern crate syn;
 extern crate fibers;
 extern crate futures;
+extern crate channel;
 
 use proc_macro::TokenStream;
-use two_lock_queue::{unbounded, Sender, Receiver, TryRecvError};
 
 #[derive(Debug, Clone)]
 struct Method {
@@ -51,7 +51,7 @@ pub fn derive_actor(args: TokenStream, input: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn derive_actor_trait(args: TokenStream, input: TokenStream) -> TokenStream {
     let source = input.to_string();
-//    panic!("{}", &args.to_string()[2..args.to_string().len() - 2]);
+    //    panic!("{}", &args.to_string()[2..args.to_string().len() - 2]);
     let trait_name = syn::Ident::new(&args.to_string()[2..args.to_string().len() - 2]);
     // Foo<A, B> where B: Blah -> syn::Generics for A, B: Blah
     let src_impl = parse_impl_trait(&source);
@@ -134,7 +134,7 @@ fn gen_message(src_impl: Impl) -> quote::Tokens {
     let generic_types = gen_msg_types(src_impl.methods.clone());
     let variants = gen_variants(src_impl.methods.clone());
     #[allow(non_shorthand_field_patterns)]
-    quote!(pub enum #message_name #generic_types {
+        quote!(pub enum #message_name #generic_types {
         #variants
     })
 }
@@ -146,10 +146,9 @@ fn gen_variants(methods: Vec<Method>) -> quote::Tokens {
 
         let generic_idents: Vec<_> = method.signature.generics.ty_params.iter().cloned().map(|ty| ty.ident).collect();
 
-        let mut variant_fields = method.signature.decl.inputs.iter()
+        let variant_fields = method.signature.decl.inputs.iter()
             .fold(quote!(), |mut variant_fields, arg| {
                 if let &syn::FnArg::Captured(syn::Pat::Ident(_, ref id, _), syn::Ty::Path(_, ref ty)) = arg {
-
                     // If we have a generic type we need to mangle it
                     let typ = if generic_idents.contains(&ty.segments[0].ident) {
                         syn::Ident::new(format!("{}{}", capitalize(method.name.as_ref()), ty.segments[0].ident.as_ref()))
@@ -237,7 +236,7 @@ fn route_match_arms(msg_name: syn::Ident, src_impl: Impl) -> quote::Tokens {
     src_impl.methods.into_iter().fold(quote!(), |mut q_acc, method| {
         let variant_name = syn::Ident::new(format!("{}Variant", capitalize(method.name.as_ref())));
         let mut args = quote!();
-        let mut variant_fields = method.signature.decl.inputs.iter()
+        let variant_fields = method.signature.decl.inputs.iter()
             .fold(quote!(), |mut variant_fields, arg| {
                 if let &syn::FnArg::Captured(syn::Pat::Ident(_, ref id, _), syn::Ty::Path(_, ref ty)) = arg {
                     args.append(quote!(#id, ));
@@ -282,12 +281,10 @@ fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
             pub fn new #o_generics (actor: #o_name #o_ty_generics, timeout: std::time::Duration) -> #actor_name #msg_ty_generics
                 #o_where_clause {
                     let mut actor = actor;
-                    let (sender, receiver) = two_lock_queue::unbounded();
-
-                    let recvr = receiver.clone();
+                    let (sender, receiver) = ::channel::unbounded();
 
                     let actor_ref = #actor_name {
-                        sender: sender,
+                        sender,
                     };
 
                     actor.init(actor_ref.clone());
@@ -295,14 +292,14 @@ fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
                     std::thread::spawn(
                         move || {
                             loop {
-                                match recvr.recv_timeout(timeout) {
+                                match receiver.recv_timeout(timeout) {
                                     Ok(msg) => {
                                         actor.route_msg(msg);
                                     }
-                                    Err(two_lock_queue::RecvTimeoutError::Disconnected) => {
+                                    Err(::channel::RecvTimeoutError::Disconnected) => {
                                         break
                                     }
-                                    Err(two_lock_queue::RecvTimeoutError::Timeout) => {
+                                    Err(::channel::RecvTimeoutError::Timeout) => {
                                         actor.on_timeout()
                                     }
                                 }
@@ -339,7 +336,6 @@ fn gen_actor_impl_trait(src_impl: Impl, trait_name: syn::Ident) -> quote::Tokens
 
 // fn foo<T: Bar>(baz: T)
 fn gen_actor_trait_methods(src_impl: Impl) -> quote::Tokens {
-
     let mut actor_methods = quote!();
 
     for method in src_impl.methods.clone() {
@@ -347,7 +343,7 @@ fn gen_actor_trait_methods(src_impl: Impl) -> quote::Tokens {
 
         let generic_idents: Vec<_> = method.signature.generics.ty_params.iter().cloned().map(|ty| ty.ident).collect();
 
-        let mut variant_fields = method.signature.decl.inputs.iter()
+        let variant_fields = method.signature.decl.inputs.iter()
             .fold(quote!(), |mut variant_fields, arg| {
                 if let &syn::FnArg::Captured(syn::Pat::Ident(_, ref id, _), syn::Ty::Path(_, ref ty)) = arg {
                     // If we have a generic type we need to mangle it
@@ -377,7 +373,6 @@ fn gen_actor_trait_methods(src_impl: Impl) -> quote::Tokens {
             }
         };
         actor_methods.append(method);
-
     }
 
     actor_methods
@@ -386,7 +381,6 @@ fn gen_actor_trait_methods(src_impl: Impl) -> quote::Tokens {
 
 // fn foo<T: Bar>(baz: T)
 fn gen_actor_methods(src_impl: Impl) -> quote::Tokens {
-
     let mut actor_methods = quote!();
 
     for method in src_impl.methods.clone() {
@@ -394,7 +388,7 @@ fn gen_actor_methods(src_impl: Impl) -> quote::Tokens {
 
         let generic_idents: Vec<_> = method.signature.generics.ty_params.iter().cloned().map(|ty| ty.ident).collect();
 
-        let mut variant_fields = method.signature.decl.inputs.iter()
+        let variant_fields = method.signature.decl.inputs.iter()
             .fold(quote!(), |mut variant_fields, arg| {
                 if let &syn::FnArg::Captured(syn::Pat::Ident(_, ref id, _), syn::Ty::Path(_, ref ty)) = arg {
                     // If we have a generic type we need to mangle it
@@ -424,7 +418,6 @@ fn gen_actor_methods(src_impl: Impl) -> quote::Tokens {
             }
         };
         actor_methods.append(method);
-
     }
 
     actor_methods
@@ -446,7 +439,7 @@ fn gen_actor_struct(src_impl: Impl) -> quote::Tokens {
     quote! {
         #[derive(Clone)]
         pub struct #actor_name #impl_generics #where_clause {
-            sender: two_lock_queue::Sender < #msg_name #ty_generics >,
+            sender: ::channel::Sender < #msg_name #ty_generics >,
         }
     }
 }
