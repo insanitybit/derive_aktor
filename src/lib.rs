@@ -51,7 +51,7 @@ pub fn derive_actor(args: TokenStream, input: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn derive_actor_trait(args: TokenStream, input: TokenStream) -> TokenStream {
     let source = input.to_string();
-//    panic!("{}", &args.to_string()[2..args.to_string().len() - 2]);
+    //    panic!("{}", &args.to_string()[2..args.to_string().len() - 2]);
     let trait_name = syn::Ident::new(&args.to_string()[2..args.to_string().len() - 2]);
     // Foo<A, B> where B: Blah -> syn::Generics for A, B: Blah
     let src_impl = parse_impl_trait(&source);
@@ -134,7 +134,7 @@ fn gen_message(src_impl: Impl) -> quote::Tokens {
     let generic_types = gen_msg_types(src_impl.methods.clone());
     let variants = gen_variants(src_impl.methods.clone());
     #[allow(non_shorthand_field_patterns)]
-    quote!(pub enum #message_name #generic_types {
+        quote!(pub enum #message_name #generic_types {
         #variants
     })
 }
@@ -149,7 +149,6 @@ fn gen_variants(methods: Vec<Method>) -> quote::Tokens {
         let mut variant_fields = method.signature.decl.inputs.iter()
             .fold(quote!(), |mut variant_fields, arg| {
                 if let &syn::FnArg::Captured(syn::Pat::Ident(_, ref id, _), syn::Ty::Path(_, ref ty)) = arg {
-
                     // If we have a generic type we need to mangle it
                     let typ = if generic_idents.contains(&ty.segments[0].ident) {
                         syn::Ident::new(format!("{}{}", capitalize(method.name.as_ref()), ty.segments[0].ident.as_ref()))
@@ -292,7 +291,8 @@ fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
 
                     actor.init(actor_ref.clone());
 
-                    std::thread::spawn(
+                    std::thread::Builder::new()
+                        .stack_size(32 * 1024 * 1024).spawn(
                         move || {
                             loop {
                                 match recvr.recv_timeout(timeout) {
@@ -307,7 +307,7 @@ fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
                                     }
                                 }
                             }
-                        });
+                        }).expect(&format!("Failed to spawn thread for {}", stringify!(#actor_name)));
                     actor_ref
                 }
 
@@ -339,7 +339,6 @@ fn gen_actor_impl_trait(src_impl: Impl, trait_name: syn::Ident) -> quote::Tokens
 
 // fn foo<T: Bar>(baz: T)
 fn gen_actor_trait_methods(src_impl: Impl) -> quote::Tokens {
-
     let mut actor_methods = quote!();
 
     for method in src_impl.methods.clone() {
@@ -377,7 +376,6 @@ fn gen_actor_trait_methods(src_impl: Impl) -> quote::Tokens {
             }
         };
         actor_methods.append(method);
-
     }
 
     actor_methods
@@ -386,7 +384,6 @@ fn gen_actor_trait_methods(src_impl: Impl) -> quote::Tokens {
 
 // fn foo<T: Bar>(baz: T)
 fn gen_actor_methods(src_impl: Impl) -> quote::Tokens {
-
     let mut actor_methods = quote!();
 
     for method in src_impl.methods.clone() {
@@ -424,7 +421,6 @@ fn gen_actor_methods(src_impl: Impl) -> quote::Tokens {
             }
         };
         actor_methods.append(method);
-
     }
 
     actor_methods
