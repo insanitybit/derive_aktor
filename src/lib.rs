@@ -48,6 +48,49 @@ pub fn derive_actor(args: TokenStream, input: TokenStream) -> TokenStream {
     quote!(#parsed_input #actor_message #actor_struct #actor_impl #route_msg).parse().unwrap()
 }
 
+#[proc_macro_attribute]
+pub fn derive_actor_trait(args: TokenStream, input: TokenStream) -> TokenStream {
+    let source = input.to_string();
+//    panic!("{}", &args.to_string()[2..args.to_string().len() - 2]);
+    let trait_name = syn::Ident::new(&args.to_string()[2..args.to_string().len() - 2]);
+    // Foo<A, B> where B: Blah -> syn::Generics for A, B: Blah
+    let src_impl = parse_impl_trait(&source);
+
+    let actor_impl = gen_actor_impl_trait(src_impl.clone(), trait_name.clone());
+
+    let parsed_input = syn::parse_item(&source).unwrap();
+    quote!(#parsed_input #actor_impl).parse().unwrap()
+}
+
+fn parse_impl_trait(source: &str) -> Impl {
+    if let syn::ItemKind::Impl(unsafety, polarity, generics, path, ty, items) = syn::parse_item(&source).unwrap().node {
+        let impl_name = if let syn::Ty::Path(_, path) = *ty {
+            path.segments[0].ident.clone()
+        } else {
+            panic!("Could not find impl ident");
+        };
+
+        let methods: Vec<Method> = items.iter().cloned().filter_map(|item| {
+            if let syn::ImplItemKind::Method(sig, _) = item.node {
+                Some(Method {
+                    name: item.ident,
+                    signature: sig
+                })
+            } else {
+                None
+            }
+        }).collect();
+
+        Impl {
+            original_name: impl_name,
+            impl_generics: generics,
+            methods: methods
+        }
+    } else {
+        panic!("Called parse_impl on non impl");
+    }
+}
+
 fn parse_impl(source: &str) -> Impl {
     if let syn::ItemKind::Impl(unsafety, polarity, generics, path, ty, items) = syn::parse_item(&source).unwrap().node {
         let impl_name = if let syn::Ty::Path(_, path) = *ty {
@@ -95,6 +138,7 @@ fn gen_message(src_impl: Impl) -> quote::Tokens {
         #variants
     })
 }
+
 
 fn gen_variants(methods: Vec<Method>) -> quote::Tokens {
     methods.into_iter().fold(quote!(), |mut q_acc, method| {
@@ -270,6 +314,73 @@ fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
             #actor_methods
         }
     }
+}
+
+fn gen_actor_impl_trait(src_impl: Impl, trait_name: syn::Ident) -> quote::Tokens {
+    let o_generics = src_impl.impl_generics.clone();
+    let o_name = src_impl.original_name.clone();
+
+    let actor_name = syn::Ident::new(format!("{}Actor", src_impl.original_name.clone()));
+    let msg_name = syn::Ident::new(format!("{}Message", src_impl.original_name));
+    let msg_types = gen_msg_types(src_impl.methods.clone());
+
+    let (msg_impl_generics, msg_ty_generics, msg_where_clause) = msg_types.split_for_impl();
+
+    let (o_impl_generics, o_ty_generics, o_where_clause) = o_generics.split_for_impl();
+
+    let actor_methods = gen_actor_trait_methods(src_impl.clone());
+
+    quote! {
+        impl #msg_ty_generics #trait_name for #actor_name  #msg_ty_generics #msg_where_clause {
+            #actor_methods
+        }
+    }
+}
+
+// fn foo<T: Bar>(baz: T)
+fn gen_actor_trait_methods(src_impl: Impl) -> quote::Tokens {
+
+    let mut actor_methods = quote!();
+
+    for method in src_impl.methods.clone() {
+        let mut args = quote!();
+
+        let generic_idents: Vec<_> = method.signature.generics.ty_params.iter().cloned().map(|ty| ty.ident).collect();
+
+        let mut variant_fields = method.signature.decl.inputs.iter()
+            .fold(quote!(), |mut variant_fields, arg| {
+                if let &syn::FnArg::Captured(syn::Pat::Ident(_, ref id, _), syn::Ty::Path(_, ref ty)) = arg {
+                    // If we have a generic type we need to mangle it
+                    let typ = if generic_idents.contains(&ty.segments[0].ident) {
+                        syn::Ident::new(format!("{}{}", capitalize(method.name.as_ref()), ty.segments[0].ident.as_ref()))
+                    } else {
+                        ty.segments[0].ident.clone()
+                    };
+
+                    args.append(quote!(#id: #typ, ));
+
+                    variant_fields.append(quote! {
+                    #id: #id,
+                });
+                }
+                variant_fields
+            });
+
+        let method_name = method.name.clone();
+        let msg_name = syn::Ident::new(format!("{}Message", src_impl.original_name));
+        let variant_name = syn::Ident::new(format!("{}Variant", capitalize(method.name.as_ref())));
+
+        let method = quote! {
+            fn #method_name ( &self, #args ) {
+                let msg = #msg_name :: #variant_name { #variant_fields };
+                self.sender.send( msg );
+            }
+        };
+        actor_methods.append(method);
+
+    }
+
+    actor_methods
 }
 
 
