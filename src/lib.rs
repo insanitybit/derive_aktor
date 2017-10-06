@@ -5,7 +5,6 @@
 extern crate quote;
 extern crate proc_macro;
 extern crate syn;
-extern crate fibers;
 extern crate futures;
 extern crate channel;
 
@@ -286,11 +285,11 @@ fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
 
     quote! {
         impl #msg_impl_generics #actor_name #msg_ty_generics #msg_where_clause {
-
-            pub fn new #o_generics (actor: #o_name #o_ty_generics, timeout: std::time::Duration) -> #actor_name #msg_ty_generics
+            pub fn new #o_generics (actor: #o_name #o_ty_generics, system: ::aktors::actor::SystemActor, timeout: std::time::Duration) -> #actor_name #msg_ty_generics
                 #o_where_clause {
+                    use ::futures::Stream;
                     let mut actor = actor;
-                    let (sender, receiver) = ::channel::unbounded();
+                    let (sender, receiver) = ::futures::sync::mpsc::unbounded();
                     let s = sender.clone();
                     let a = ::std::sync::Arc::new(());
                     let actor_ref = #actor_name {
@@ -298,49 +297,37 @@ fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
                         ref_count: a.clone()
                     };
 
-                    actor.init(actor_ref.clone());
+                    actor.init(actor_ref.clone(), system.clone());
 
-                    std::thread::spawn(
-                        move || {
-                            loop {
-                                match receiver.recv_timeout(timeout) {
-                                    Ok(msg) => {
-//                                                println!("{} {}", stringify!(#actor_name),
-//                                                ::std::sync::Arc::strong_count(&a));
-                                        match msg {
-                                            #system_msg_name :: Inner(msg) => {
+                    let loop_future = receiver.for_each(move |msg| {
+                        match msg {
+                            #system_msg_name :: Inner(msg) => {
 //                                                println!("msg {}", stringify!(#actor_name));
-                                                actor.route_msg(msg);
-                                            },
-                                            #system_msg_name :: Kill => {
-                                                // We still have messages, so it's possible that we'll hand out new references
-                                                if receiver.len() > 1 {
+                                actor.route_msg(msg);
+                            },
+                            #system_msg_name :: Kill => {
+                                // We still have messages, so it's possible that we'll hand out new references
+                                if false {
 //                                                   println!("received kill msg, {} sending kill {}", stringify!(#actor_name), receiver.len());
-                                                   s.send(#system_msg_name :: Kill);
-                                                } else {
-                                                    // If we're out of messages but there are still references to us
-                                                    // don't die
-                                                   if ::std::sync::Arc::strong_count(&a) <= 2 {
+                                   s.send(#system_msg_name :: Kill);
+                                } else {
+                                    // If we're out of messages but there are still references to us
+                                    // don't die
+                                   if ::std::sync::Arc::strong_count(&a) <= 2 {
 //                                                       println!("received kill msg, {} disconnecting {}", stringify!(#actor_name), receiver.len());
-                                                       s.send(#system_msg_name :: Kill);
-                                                       break
-                                                   } else {
+                                       s.send(#system_msg_name :: Kill);
+                                       return Ok(())
+                                   } else {
 //                                                       println!("here {}", ::std::sync::Arc::strong_count(&a));
-                                                   }
-                                                }
-                                            }
-                                        }
-                                    }
-                                    Err(::channel::RecvTimeoutError::Disconnected) => {
-//                                        println!("disconnected {}", stringify!(#actor_name));
-                                        break
-                                    }
-                                    Err(::channel::RecvTimeoutError::Timeout) => {
-                                        actor.on_timeout()
-                                    }
+                                   }
                                 }
                             }
-                        });
+                        }
+                        Ok(())
+                    });
+
+
+                    system.spawn(move |_| loop_future);
                     actor_ref
                 }
 
@@ -452,6 +439,7 @@ fn gen_actor_methods(src_impl: Impl) -> quote::Tokens {
 
         let method = quote! {
             pub fn #method_name ( &self, #args ) {
+
                 let msg = #msg_name :: #variant_name { #variant_fields };
                 let msg = #system_msg_name :: Inner ( msg );
                 self.sender.send( msg );
@@ -480,15 +468,16 @@ fn gen_actor_struct(src_impl: Impl) -> quote::Tokens {
     quote! {
         #[derive(Clone)]
         pub struct #actor_name #impl_generics #where_clause {
-            sender: ::channel::Sender < #system_msg_name #ty_generics >,
+            sender: ::futures::sync::mpsc::UnboundedSender < #system_msg_name #ty_generics >,
             pub ref_count: ::std::sync::Arc<()>
         }
 
         impl Drop for #actor_name #impl_generics #where_clause {
             fn drop(&mut self) {
+
                 if ::std::sync::Arc::strong_count(&self.ref_count) <= 3 {
 //                    println!("Sending kill");
-                    self.sender.send( #system_msg_name :: Kill );
+//                    &self.sender.send( #system_msg_name :: Kill );
                 };
             }
         }
