@@ -5,7 +5,6 @@
 extern crate quote;
 extern crate proc_macro;
 extern crate syn;
-extern crate fibers;
 extern crate futures;
 extern crate channel;
 
@@ -287,7 +286,7 @@ fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
     quote! {
         impl #msg_impl_generics #actor_name #msg_ty_generics #msg_where_clause {
 
-            pub fn new #o_generics (actor: #o_name #o_ty_generics, timeout: std::time::Duration) -> #actor_name #msg_ty_generics
+            pub fn new #o_generics (actor: #o_name #o_ty_generics, system: SystemActor, timeout: std::time::Duration) -> #actor_name #msg_ty_generics
                 #o_where_clause {
                     let mut actor = actor;
                     let (sender, receiver) = ::channel::unbounded();
@@ -298,7 +297,7 @@ fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
                         ref_count: a.clone()
                     };
 
-                    actor.init(actor_ref.clone());
+                    actor.init(actor_ref.clone(), system);
 
                     std::thread::spawn(
                         move || {
