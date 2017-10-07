@@ -141,7 +141,8 @@ fn gen_message(src_impl: Impl) -> quote::Tokens {
 
             pub enum #system_message_name #generic_types {
                 Inner(#message_name #generic_types),
-                Kill
+                Kill,
+                HardKill
             }
         )
 }
@@ -283,21 +284,31 @@ fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
 
     let actor_methods = gen_actor_methods(src_impl.clone());
 
+    let s = quote!(#o_impl_generics).to_string();
+    let h_o_impl_generics = if s.is_empty() {
+        quote!(Init: (Fn(#actor_name, SystemActor) -> #o_name) + Send + Sync + 'static)
+    } else {
+        let s = syn::Ident::new(&s[1..s.len() - 1]);
+        quote!(#s, Init: Fn(#actor_name, SystemActor) -> #o_name #o_ty_generics + Send + Sync + 'static)
+    };
+
     quote! {
         impl #msg_impl_generics #actor_name #msg_ty_generics #msg_where_clause {
 
-            pub fn new #o_generics (actor: #o_name #o_ty_generics, system: SystemActor, timeout: std::time::Duration) -> #actor_name #msg_ty_generics
+            pub fn new <#h_o_impl_generics>(init: Init, system: ::aktors::actor::SystemActor, timeout: std::time::Duration) -> #actor_name #msg_ty_generics
                 #o_where_clause {
-                    let mut actor = actor;
                     let (sender, receiver) = ::channel::unbounded();
                     let s = sender.clone();
                     let a = ::std::sync::Arc::new(());
+                    let id = ::std::sync::Arc::new(::uuid::Uuid::new_v4().to_string());
                     let actor_ref = #actor_name {
                         sender,
-                        ref_count: a.clone()
+                        ref_count: a.clone(),
+                        id: id.clone()
                     };
 
-                    actor.init(actor_ref.clone(), system);
+
+                    let mut actor = init(actor_ref.clone(), system);
 
                     std::thread::spawn(
                         move || {
@@ -320,21 +331,30 @@ fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
                                                     // If we're out of messages but there are still references to us
                                                     // don't die
                                                    if ::std::sync::Arc::strong_count(&a) <= 2 {
-//                                                       println!("received kill msg, {} disconnecting {}", stringify!(#actor_name), receiver.len());
+//                                                       println!("received kill msg, {} disconnecting {} {}", stringify!(#actor_name), receiver.len(),
+//                                                       id.clone());
                                                        s.send(#system_msg_name :: Kill);
+                                                       drop(actor);
                                                        break
                                                    } else {
 //                                                       println!("here {}", ::std::sync::Arc::strong_count(&a));
                                                    }
                                                 }
+                                            },
+                                            #system_msg_name :: HardKill => {
+                                            drop(actor);
+                                                break
                                             }
                                         }
                                     }
                                     Err(::channel::RecvTimeoutError::Disconnected) => {
+                                    drop(actor);
 //                                        println!("disconnected {}", stringify!(#actor_name));
                                         break
                                     }
                                     Err(::channel::RecvTimeoutError::Timeout) => {
+//                                        println!("timed out, {} disconnecting {} {}", stringify!(#actor_name), receiver.len(),
+//                                            ::std::sync::Arc::strong_count(&a));
                                         actor.on_timeout()
                                     }
                                 }
@@ -343,7 +363,11 @@ fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
                     actor_ref
                 }
 
-            #actor_methods
+                pub fn kill(&self) {
+                    self.sender.send( #system_msg_name :: HardKill );
+                }
+
+                #actor_methods
         }
     }
 }
@@ -480,7 +504,8 @@ fn gen_actor_struct(src_impl: Impl) -> quote::Tokens {
         #[derive(Clone)]
         pub struct #actor_name #impl_generics #where_clause {
             sender: ::channel::Sender < #system_msg_name #ty_generics >,
-            pub ref_count: ::std::sync::Arc<()>
+            ref_count: ::std::sync::Arc<()>,
+            pub id: ::std::sync::Arc<String>
         }
 
         impl Drop for #actor_name #impl_generics #where_clause {
