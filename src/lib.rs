@@ -310,9 +310,12 @@ fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
 
                     let mut actor = init(actor_ref.clone(), system);
 
+                    let init = ::std::sync::Arc::new(init);
+                    let init = init.clone();
                     std::thread::spawn(
                         move || {
                             loop {
+                                let init = init.clone();
                                 match receiver.recv_timeout(timeout) {
                                     Ok(msg) => {
 //                                                println!("{} {}", stringify!(#actor_name),
@@ -320,7 +323,14 @@ fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
                                         match msg {
                                             #system_msg_name :: Inner(msg) => {
 //                                                println!("msg {}", stringify!(#actor_name));
-                                                actor.route_msg(msg);
+                                                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                                    actor.route_msg(msg);
+                                                }));
+
+                                                if let Err(e) = result {
+                                                    println!("{} panicked", stringify!(#actor_name));
+                                                    actor.on_error(e, init.clone());
+                                                }
                                             },
                                             #system_msg_name :: Kill => {
                                                 // We still have messages, so it's possible that we'll hand out new references
