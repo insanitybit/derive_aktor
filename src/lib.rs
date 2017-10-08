@@ -7,6 +7,7 @@ extern crate proc_macro;
 extern crate syn;
 extern crate futures;
 extern crate channel;
+extern crate string_morph;
 
 use proc_macro::TokenStream;
 
@@ -135,6 +136,7 @@ fn gen_message(src_impl: Impl) -> quote::Tokens {
     let variants = gen_variants(src_impl.methods.clone());
     #[allow(non_shorthand_field_patterns)]
         quote!(
+            #[derive(Clone)]
             pub enum #message_name #generic_types {
                 #variants
             }
@@ -150,7 +152,7 @@ fn gen_message(src_impl: Impl) -> quote::Tokens {
 
 fn gen_variants(methods: Vec<Method>) -> quote::Tokens {
     methods.into_iter().fold(quote!(), |mut q_acc, method| {
-        let variant_name = syn::Ident::new(format!("{}Variant", capitalize(method.name.as_ref())));
+        let variant_name = syn::Ident::new(format!("{}Variant", prettify_variant(method.name.as_ref())));
 
         let generic_idents: Vec<_> = method.signature.generics.ty_params.iter().cloned().map(|ty| ty.ident).collect();
 
@@ -242,7 +244,7 @@ fn gen_route_msg(src_impl: Impl) -> quote::Tokens {
 
 fn route_match_arms(msg_name: syn::Ident, src_impl: Impl) -> quote::Tokens {
     src_impl.methods.into_iter().fold(quote!(), |mut q_acc, method| {
-        let variant_name = syn::Ident::new(format!("{}Variant", capitalize(method.name.as_ref())));
+        let variant_name = syn::Ident::new(format!("{}Variant", prettify_variant(method.name.as_ref())));
         let mut args = quote!();
         let variant_fields = method.signature.decl.inputs.iter()
             .fold(quote!(), |mut variant_fields, arg| {
@@ -323,27 +325,28 @@ fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
                                         match msg {
                                             #system_msg_name :: Inner(msg) => {
 //                                                println!("msg {}", stringify!(#actor_name));
+                                                let _msg = msg.clone();
                                                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                                                     actor.route_msg(msg);
                                                 }));
 
                                                 if let Err(e) = result {
                                                     println!("{} panicked", stringify!(#actor_name));
-                                                    actor.on_error(e, init.clone());
+                                                    actor.on_error(e, _msg, init.clone());
                                                 }
                                             },
                                             #system_msg_name :: Kill => {
                                                 // We still have messages, so it's possible that we'll hand out new references
                                                 if receiver.len() > 1 {
 //                                                   println!("received kill msg, {} sending kill {}", stringify!(#actor_name), receiver.len());
-                                                   s.send(#system_msg_name :: Kill);
+                                                   let _ = s.send(#system_msg_name :: Kill);
                                                 } else {
                                                     // If we're out of messages but there are still references to us
                                                     // don't die
                                                    if ::std::sync::Arc::strong_count(&a) <= 2 {
 //                                                       println!("received kill msg, {} disconnecting {} {}", stringify!(#actor_name), receiver.len(),
 //                                                       id.clone());
-                                                       s.send(#system_msg_name :: Kill);
+                                                       let _ = s.send(#system_msg_name :: Kill);
                                                        drop(actor);
                                                        break
                                                    } else {
@@ -380,6 +383,11 @@ fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
                 #actor_methods
         }
     }
+}
+
+fn prettify_variant(variant_name: &str) -> String {
+    use string_morph::Morph;
+    variant_name.to_camel_case()
 }
 
 fn gen_actor_impl_trait(src_impl: Impl, trait_name: syn::Ident) -> quote::Tokens {
@@ -481,13 +489,13 @@ fn gen_actor_methods(src_impl: Impl) -> quote::Tokens {
         let method_name = method.name.clone();
         let msg_name = syn::Ident::new(format!("{}Message", src_impl.original_name));
         let system_msg_name = syn::Ident::new(format!("{}SystemMessage", src_impl.original_name));
-        let variant_name = syn::Ident::new(format!("{}Variant", capitalize(method.name.as_ref())));
+        let variant_name = syn::Ident::new(format!("{}Variant", prettify_variant(method.name.as_ref())));
 
         let method = quote! {
             pub fn #method_name ( &self, #args ) {
                 let msg = #msg_name :: #variant_name { #variant_fields };
                 let msg = #system_msg_name :: Inner ( msg );
-                self.sender.send( msg );
+                let _ = self.sender.send( msg );
             }
         };
         actor_methods.append(method);
@@ -522,7 +530,7 @@ fn gen_actor_struct(src_impl: Impl) -> quote::Tokens {
             fn drop(&mut self) {
                 if ::std::sync::Arc::strong_count(&self.ref_count) <= 3 {
 //                    println!("Sending kill");
-                    self.sender.send( #system_msg_name :: Kill );
+                    let _ = self.sender.send( #system_msg_name :: Kill );
                 };
             }
         }
