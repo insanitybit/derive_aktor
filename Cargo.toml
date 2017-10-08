@@ -8,9 +8,13 @@ proc-macro = true
 
 [dependencies]
 quote = "*"
-two-lock-queue = "*"
-fibers = "*"
 futures = "*"
+string_morph = "*"
+
+[dependencies.channel]
+git = "https://github.com/stjepang/channel"
+rev = "949ce33946d9e4686386ebbbe022b71de9b20950"
+
 
 [dependencies.syn]
 version = "*"

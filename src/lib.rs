@@ -1,3 +1,4 @@
+#![allow(warnings)]
 #![recursion_limit = "1024"]
 #![feature(proc_macro)]
 
@@ -152,7 +153,7 @@ fn gen_message(src_impl: Impl) -> quote::Tokens {
 
 fn gen_variants(methods: Vec<Method>) -> quote::Tokens {
     methods.into_iter().fold(quote!(), |mut q_acc, method| {
-        let variant_name = syn::Ident::new(format!("{}Variant", prettify_variant(method.name.as_ref())));
+        let variant_name = syn::Ident::new(prettify_variant(&format!("{}Variant", method.name.as_ref())));
 
         let generic_idents: Vec<_> = method.signature.generics.ty_params.iter().cloned().map(|ty| ty.ident).collect();
 
@@ -244,7 +245,7 @@ fn gen_route_msg(src_impl: Impl) -> quote::Tokens {
 
 fn route_match_arms(msg_name: syn::Ident, src_impl: Impl) -> quote::Tokens {
     src_impl.methods.into_iter().fold(quote!(), |mut q_acc, method| {
-        let variant_name = syn::Ident::new(format!("{}Variant", prettify_variant(method.name.as_ref())));
+        let variant_name = syn::Ident::new(prettify_variant(&format!("{}Variant", method.name.as_ref())));
         let mut args = quote!();
         let variant_fields = method.signature.decl.inputs.iter()
             .fold(quote!(), |mut variant_fields, arg| {
@@ -377,7 +378,7 @@ fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
                 }
 
                 pub fn kill(&self) {
-                    self.sender.send( #system_msg_name :: HardKill );
+                    let _ = self.sender.send( #system_msg_name :: HardKill );
                 }
 
                 #actor_methods
@@ -387,7 +388,7 @@ fn gen_actor_impl(src_impl: Impl) -> quote::Tokens {
 
 fn prettify_variant(variant_name: &str) -> String {
     use string_morph::Morph;
-    variant_name.to_camel_case()
+    variant_name.to_pascal_case()
 }
 
 fn gen_actor_impl_trait(src_impl: Impl, trait_name: syn::Ident) -> quote::Tokens {
@@ -442,13 +443,13 @@ fn gen_actor_trait_methods(src_impl: Impl) -> quote::Tokens {
         let method_name = method.name.clone();
         let msg_name = syn::Ident::new(format!("{}Message", src_impl.original_name));
         let system_msg_name = syn::Ident::new(format!("{}SystemMessage", src_impl.original_name));
-        let variant_name = syn::Ident::new(format!("{}Variant", capitalize(method.name.as_ref())));
+        let variant_name = syn::Ident::new(prettify_variant(&format!("{}Variant", method.name.as_ref())));
 
         let method = quote! {
             fn #method_name ( &self, #args ) {
                 let msg = #msg_name :: #variant_name { #variant_fields };
                 let msg = #system_msg_name :: Inner ( msg );
-                self.sender.send( msg );
+                let _ = self.sender.send( msg );
             }
         };
         actor_methods.append(method);
@@ -489,7 +490,7 @@ fn gen_actor_methods(src_impl: Impl) -> quote::Tokens {
         let method_name = method.name.clone();
         let msg_name = syn::Ident::new(format!("{}Message", src_impl.original_name));
         let system_msg_name = syn::Ident::new(format!("{}SystemMessage", src_impl.original_name));
-        let variant_name = syn::Ident::new(format!("{}Variant", prettify_variant(method.name.as_ref())));
+        let variant_name = syn::Ident::new(prettify_variant(&format!("{}Variant", method.name.as_ref())));
 
         let method = quote! {
             pub fn #method_name ( &self, #args ) {
@@ -537,3 +538,4 @@ fn gen_actor_struct(src_impl: Impl) -> quote::Tokens {
 
     }
 }
+
