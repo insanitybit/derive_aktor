@@ -21,7 +21,6 @@ pub struct CountLogger {
 impl CountLogger {
     pub fn count(&mut self) {
         self.count += 1;
-
         println!("[COUNT] - {}", self.count);
     }
 }
@@ -42,11 +41,11 @@ fn main() {
     let mut rt: Runtime = Runtime::new().unwrap();
 
     rt.spawn(lazy(|| -> Result<(), ()> {
-        let mut log_actor = PrintLoggerActor::new(PrintLogger {});
-        let mut count_actor = CountLoggerActor::new(CountLogger {count: 0});
+        let log_actor = PrintLoggerActor::new(PrintLogger {});
+        let count_actor = CountLoggerActor::new(CountLogger {count: 0});
 
         for i in 0..10 {
-            log_actor.foo(0, count_actor.clone());
+            log_actor.foo(i, count_actor.clone());
         }
 
         Ok(())

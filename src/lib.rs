@@ -33,9 +33,14 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
 
     let mut actor_methods = quote!();
 
-    let actor_ty = syn::Ident::new(&format!("{}Actor", quote!(#self_ty)), self_ty.span());
-    let message_ty = syn::Ident::new(&format!("{}Message", quote!(#self_ty)), self_ty.span());
-    let router_ty = syn::Ident::new(&format!("{}Router", quote!(#self_ty)), self_ty.span());
+    let type_name = format!("{}", quote!(#self_ty));
+
+    let type_name: &str = type_name.split("<").next().unwrap_or(&type_name);
+    let type_name = type_name.trim();
+
+    let actor_ty = syn::Ident::new(&format!("{}Actor", type_name), self_ty.span());
+    let message_ty = syn::Ident::new(&format!("{}Message", type_name), self_ty.span());
+    let router_ty = syn::Ident::new(&format!("{}Router", type_name), self_ty.span());
 
     let all_generics = method_generics(items.clone());
     let all_generic_tys = method_generic_tys(items.clone());
