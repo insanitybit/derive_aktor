@@ -1,3 +1,4 @@
+#![allow(warnings)]
 #![recursion_limit = "1024"]
 
 use syn::spanned::Spanned;
@@ -13,6 +14,10 @@ use proc_macro::TokenStream;
 
 use quote::{TokenStreamExt, ToTokens};
 use syn::{ImplItem, Visibility, FnArg};
+
+use syn::punctuated::Punctuated;
+use syn::GenericParam;
+use syn::token::Comma;
 
 #[proc_macro_attribute]
 pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
@@ -42,8 +47,11 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
     let message_ty = syn::Ident::new(&format!("{}Message", type_name), self_ty.span());
     let router_ty = syn::Ident::new(&format!("{}Router", type_name), self_ty.span());
 
-    let all_generics = method_generics(items.clone());
-    let all_generic_tys = method_generic_tys(items.clone());
+    let method_generics = method_generics(items.clone());
+    let method_generic_tys = method_generic_tys(items.clone());
+
+    let all_generics = all_generics(items.clone(), o_input.clone());
+    let all_generic_tys = all_generic_tys(items.clone(), o_input.clone());
 
     let message_variants = gen_message_variants(items.clone());
 
@@ -56,10 +64,10 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
                 let mut args = quote![];
                 let mut arg_and_tys = quote![];
 
-                for arg in method.sig.decl.inputs {
+                for arg in method.sig.inputs {
                     let arg: FnArg = arg;
                     match arg {
-                        FnArg::Captured(arg) => {
+                        FnArg::Typed(arg) => {
                             let arg_name = arg.pat;
                             let arg_ty = arg.ty;
 
@@ -97,10 +105,10 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
 
                 let mut args = quote![];
 
-                for arg in method.sig.decl.inputs {
+                for arg in method.sig.inputs {
                     let arg: FnArg = arg;
                     match arg {
-                        FnArg::Captured(arg) => {
+                        FnArg::Typed(arg) => {
                             let arg_name = arg.pat;
 
                             args.extend(quote!(#arg_name, ));
@@ -130,13 +138,13 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
         #o_input
         // Message
 
-        pub enum #message_ty #all_generics {
+        pub enum #message_ty #method_generics {
             #message_variants
         }
 
         // route_msg impl
-        impl #self_ty {
-            pub fn route_message #all_generics (&mut self, msg: #message_ty #all_generic_tys ) {
+        impl #generics #self_ty {
+            pub fn route_message #method_generics (&mut self, msg: #message_ty #method_generic_tys ) {
                 match msg {
                     #route_arms
                 };
@@ -145,12 +153,12 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
 
         // Actor Struct
         #[derive(Clone)]
-        pub struct #actor_ty #all_generics {
-            sender: Sender<#message_ty #all_generic_tys>,
+        pub struct #actor_ty #method_generics {
+            sender: Sender<#message_ty #method_generic_tys>,
         }
         // Actor Impl block
-        #impl_token #all_generics #actor_ty #all_generic_tys {
-            pub fn new(actor_impl: #self_ty) -> Self {
+        #impl_token #method_generics #actor_ty #method_generic_tys {
+            pub fn new #generics (actor_impl: #self_ty) -> Self {
                 let (sender, receiver) = channel(0);
                 let id = "random string".to_owned();
 
@@ -171,7 +179,7 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
         // Router Struct
 
         pub struct #router_ty #all_generics {
-            receiver: Receiver<#message_ty #all_generic_tys>,
+            receiver: Receiver<#message_ty #method_generic_tys>,
             id: String,
             actor_impl: #self_ty
 
@@ -206,7 +214,7 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
 
     };
 
-    println!("{}", result.to_string());
+    // println!("{}", result.to_string());
 
     result.into()
 }
@@ -227,10 +235,10 @@ fn gen_message_variants(items: Vec<ImplItem>) -> impl quote::ToTokens {
 
                 let mut args = quote![];
 
-                for arg in method.sig.decl.inputs {
+                for arg in method.sig.inputs {
                     let arg: FnArg = arg;
                     match arg {
-                        FnArg::SelfRef(_) | FnArg::SelfValue(_) => {
+                        FnArg::Receiver(_) => {
                             continue
                         }
                         arg => args.extend(quote!(#arg, ))
@@ -253,19 +261,73 @@ fn gen_message_variants(items: Vec<ImplItem>) -> impl quote::ToTokens {
     message_variants
 }
 
+fn all_generics(items: Vec<ImplItem>, item_impl: syn::ItemImpl) -> impl quote:: ToTokens {
+    let impl_generics = item_impl.generics;
+
+    let mut all_generics = impl_generics.clone();
+
+    for item in items {
+
+        if let ImplItem::Method(method) = item {
+            if let Visibility::Public(vis) = method.vis {
+                let mut generics = method.sig.generics;
+                let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
+                for param in generics.params {
+                    all_generics.params.push(param);
+                }
+            }
+        }
+    }
+
+    let (impl_generics, ty_generics, where_clause) = all_generics.split_for_impl();
+    let all_generics = quote!(#impl_generics);
+    // println!("all_generic_tys {}", all_generics.to_string());
+
+    all_generics
+}
+
+
+fn all_generic_tys(items: Vec<ImplItem>, item_impl: syn::ItemImpl) -> impl quote:: ToTokens {
+    let impl_generics = item_impl.generics;
+
+    let mut all_generics = impl_generics.clone();
+
+    for item in items {
+
+        if let ImplItem::Method(method) = item {
+            if let Visibility::Public(vis) = method.vis {
+                let mut generics = method.sig.generics;
+                let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
+                for param in generics.params {
+                    all_generics.params.push(param);
+                }
+            }
+        }
+    }
+
+    let (impl_generics, ty_generics, where_clause) = all_generics.split_for_impl();
+    let all_generics = quote!(#ty_generics);
+    // println!("all_generic_tys {}", all_generics.to_string());
+
+    all_generics
+}
+
+
 fn method_generics(items: Vec<ImplItem>) -> impl quote:: ToTokens {
     let mut generic_types = quote!();
     for item in items {
 
         if let ImplItem::Method(method) = item {
             if let Visibility::Public(vis) = method.vis {
-                let generics = method.sig.decl.generics;
+                let generics = method.sig.generics;
                 generic_types.extend(quote!(#generics));
             }
         }
     }
 
-//    println!("{}", generic_types.to_string());
+    // println!("method_generics {}", generic_types.to_string());
 
     generic_types
 }
@@ -277,7 +339,7 @@ fn method_generic_tys(items: Vec<ImplItem>) -> impl quote:: ToTokens {
 
         if let ImplItem::Method(method) = item {
             if let Visibility::Public(vis) = method.vis {
-                let mut generics = method.sig.decl.generics;
+                let mut generics = method.sig.generics;
                 let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
                 generic_types.extend(quote!(#ty_generics));
             }
