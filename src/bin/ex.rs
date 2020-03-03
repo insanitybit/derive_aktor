@@ -45,6 +45,34 @@ impl<U: Hash + Eq + Send + 'static> KeyValueStore<U> {
 }
 
 
+pub struct ApiWrapper
+{
+    inner_store: KeyValueStoreActor<&'static str>,
+    self_actor: Option<ApiWrapperActor>,
+}
+
+impl ApiWrapper {
+    pub fn new(inner_store: KeyValueStoreActor<&'static str>) -> Self {
+        Self {
+            inner_store,
+            self_actor: None,
+        }
+    }
+}
+
+#[derive_actor]
+impl ApiWrapper {
+    pub async fn query(&self, key: &'static str, f: Box<dyn Fn(Option<String>) + Send + 'static>) {
+        println!("query");
+        self.inner_store.query(key, f).await;
+    }
+
+    pub async fn set(&mut self, key: &'static str, value: String) {
+        println!("set");
+        self.inner_store.set(key, value);
+    }
+}
+
 #[tokio::main]
 async fn main() {
 

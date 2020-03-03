@@ -7,69 +7,53 @@ This library is in progress, there may be breaking changes.
 just a line of code. You can think of actors sort of like Queues that hold state and, in the case of this library,
 provide a richer API than just `send` and `recv`.
 
-Here's a minimal example, we'll write a "CounterLogger" that is asynchronous.
-```rust
-#[derive(Default)]
-pub struct CountLogger {
-    count: u32
-}
-
-#[derive_actor]
-impl CountLogger {
-    pub fn count(&mut self) {
-        self.count += 1;
-        println!("[COUNT] - {}", self.count);
-    }
-}
-
-fn main() {
-    let mut rt: Runtime = Runtime::new().unwrap();
-
-    rt.spawn(lazy(|| -> Result<(), ()> {
-        let count_actor = CountLoggerActor::new(Default::default());
-        for i in 0..10 {
-            count_actor.count(i);
-        }
-
-        Ok(())
-    }));
-
-    rt.shutdown_on_idle().wait().unwrap();
-}
-```
-
-Outside of some boilerplate to set up the runtime, there is no need to think about sync vs async. We wrote code
-exactly how we would in a synchronous context, and the async code is generated for it.
-
 Actors can also have generic methods or state.
 
+Here's a simple example of a "KeyValueStore". We can interact with it asynchronously,
+share it across threads, 
 ```rust
-#[derive(Default)]
-pub struct CountLogger {
-    count: u32
+pub struct KeyValueStore<U>
+    where U: Hash + Eq + Send + 'static
+{
+    inner_store: HashMap<U, String>,
+    self_actor: Option<KeyValueStoreActor<U>>,
 }
 
+impl<U: Hash + Eq + Send + 'static> KeyValueStore<U> {
+    pub fn new() -> Self {
+        Self {
+            inner_store: HashMap::new(),
+            self_actor: None,
+        }
+    }
+}
 #[derive_actor]
-impl CountLogger {
-    pub fn count<T: Display + Send + 'static>(&mut self, msg: T) {
-        self.count += 1;
-        println!("[COUNT] - {} - {}", self.count, msg);
+impl<U: Hash + Eq + Send + 'static> KeyValueStore<U> {
+    pub fn query(&self, key: U, f: Box<dyn Fn(Option<String>) + Send + 'static>) {
+        println!("query");
+        f(self.inner_store.get(&key).map(String::from))
+    }
+
+    pub fn set(&mut self, key: U, value: String) {
+        println!("set");
+        self.inner_store.insert(key, value);
     }
 }
 
-fn main() {
-    let mut rt: Runtime = Runtime::new().unwrap();
 
-    rt.spawn(lazy(|| -> Result<(), ()> {
-        let count_actor = CountLoggerActor::new(Default::default());
-        for i in 0..10 {
-            count_actor.count(i, "some message");
-        }
+#[tokio::main]
+async fn main() {
 
-        Ok(())
-    }));
+    let (kv_store, handle) = KeyValueStoreActor::new(KeyValueStore::new()).await;
 
-    rt.shutdown_on_idle().wait().unwrap();
+    kv_store.query("foo", Box::new(|value| println!("before {:?}", value))).await;
+    kv_store.set("foo", "bar".to_owned()).await;
+    kv_store.query("foo", Box::new(|value| println!("after {:?}", value))).await;
+
+    // Equivalent to 'drop', but necessary if we had never used 'kv_store'
+    kv_store.release();
+    handle.await;
 }
+
 ```
 

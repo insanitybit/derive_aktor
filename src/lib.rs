@@ -127,11 +127,18 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
                     }
                 }
 
+                let arm = if method.sig.asyncness.is_some() {
+                    quote!(
+                    #message_ty :: #ident { #args }
+                        => self. #ident (#args) .await,
+                    )
+                } else {
+                    quote!(
+                    #message_ty :: #ident { #args }
+                        => self. #ident (#args),
+                    )
+                };
 
-                let arm = quote!(
-                #message_ty :: #ident { #args }
-                    => self. #ident (#args),
-                );
 
                 route_arms.extend(arm);
             }
