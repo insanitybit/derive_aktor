@@ -1,57 +1,60 @@
+extern crate derive_aktor;
 extern crate futures;
-extern crate tokio;
 extern crate syn;
+extern crate tokio;
 
-use futures::{Future, Poll, Async, task};
-use futures::lazy;
-use futures::sync::mpsc::{Receiver, Sender, channel};
-use futures::stream::Stream;
-use futures::sink::Sink;
+use std::collections::HashMap;
+
+use std::hash::Hash;
 use tokio::runtime::Runtime;
-use futures::task::Task;
-use syn::export::fmt::Display;
+use tokio::sync::mpsc::{channel, Receiver, Sender};
+
+use async_trait::async_trait;
+use derive_aktor::derive_actor;
+
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 
-#[derive(Default)]
-pub struct CountLogger {
-    count: u32
+pub struct KeyValueStore<U>
+    where U: Hash + Eq + Send + 'static
+{
+    inner_store: HashMap<U, String>,
+    self_actor: Option<KeyValueStoreActor<U>>,
 }
 
-#[derive_aktor::derive_actor]
-impl CountLogger {
-    pub fn count(&mut self) {
-        self.count += 1;
-        println!("[COUNT] - {}", self.count);
-    }
-}
-
-
-pub struct PrintLogger {}
-
-#[derive_aktor::derive_actor]
-impl PrintLogger {
-    pub fn foo<T: Display + Send + 'static>(&self, bar: T, counter: CountLoggerActor) {
-        println!("bar {}", bar);
-        counter.count();
-    }
-}
-
-
-fn main() {
-    let mut rt: Runtime = Runtime::new().unwrap();
-
-    rt.spawn(lazy(|| -> Result<(), ()> {
-        let log_actor = PrintLoggerActor::new(PrintLogger {});
-        let count_actor = CountLoggerActor::new(CountLogger {count: 0});
-
-        for i in 0..10 {
-            log_actor.foo(i, count_actor.clone());
+impl<U: Hash + Eq + Send + 'static> KeyValueStore<U> {
+    pub fn new() -> Self {
+        Self {
+            inner_store: HashMap::new(),
+            self_actor: None,
         }
+    }
+}
+#[derive_actor]
+impl<U: Hash + Eq + Send + 'static> KeyValueStore<U> {
+    pub fn query(&self, key: U, f: Box<dyn Fn(Option<String>) + Send + 'static>) {
+        println!("query");
+        f(self.inner_store.get(&key).map(String::from))
+    }
 
-        Ok(())
-    }));
-
-    rt.shutdown_on_idle().wait().unwrap();
+    pub fn set(&mut self, key: U, value: String) {
+        println!("set");
+        self.inner_store.insert(key, value);
+    }
 }
 
 
+#[tokio::main]
+async fn main() {
+
+    let (kv_store, handle) = KeyValueStoreActor::new(KeyValueStore::new()).await;
+
+    kv_store.query("foo", Box::new(|value| println!("before {:?}", value))).await;
+    kv_store.set("foo", "bar".to_owned()).await;
+    kv_store.query("foo", Box::new(|value| println!("after {:?}", value))).await;
+
+    // Equivalent to 'drop', but necessary if we had never used 'kv_store'
+    kv_store.release();
+    handle.await;
+}

@@ -2,17 +2,25 @@
 name = "derive-aktor"
 version = "0.1.0"
 authors = ["insanitybit <insanitybit@gmail.com>"]
+edition = "2018"
+description = "Create actors in rust with a derive macro"
+license = "MIT"
 
 [lib]
 proc-macro = true
 
 [dependencies]
-quote = "*"
 
-fibers = "*"
-futures = "*"
-tokio = "0.1.21"
+
+quote = "1.0"
+futures = "0.3"
+async-trait = "0.1"
+aktors = "0.2"
+
+[dependencies.tokio]
+version = "0.2"
+features = ["full"]
 
 [dependencies.syn]
-version = "*"
+version = "1.0.*"
 features = ['full']
