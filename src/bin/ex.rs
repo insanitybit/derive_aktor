@@ -76,13 +76,21 @@ impl ApiWrapper {
 #[tokio::main]
 async fn main() {
 
-    let (kv_store, handle) = KeyValueStoreActor::new(KeyValueStore::new()).await;
+    let (kv_store, kv_store_handle) = KeyValueStoreActor::new(KeyValueStore::new()).await;
 
     kv_store.query("foo", Box::new(|value| println!("before {:?}", value))).await;
     kv_store.set("foo", "bar".to_owned()).await;
     kv_store.query("foo", Box::new(|value| println!("after {:?}", value))).await;
 
-    // Equivalent to 'drop', but necessary if we had never used 'kv_store'
-    kv_store.release();
-    handle.await;
+
+    let (api, api_handle) = ApiWrapperActor::new(ApiWrapper::new(kv_store.clone())).await;
+
+    api.query("baz", Box::new(|value| println!("api.baz {:?}", value))).await;
+    api.query("foo", Box::new(|value| println!("api.foo {:?}", value))).await;
+
+    drop(kv_store);
+    drop(api);
+
+    kv_store_handle.await;
+    api_handle.await;
 }

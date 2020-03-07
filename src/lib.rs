@@ -194,7 +194,7 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
         #impl_token #all_generics #actor_ty #all_generic_tys {
             pub async fn new (mut actor_impl: #self_ty) -> (Self, tokio::task::JoinHandle<()>) {
                 let (sender, receiver) = channel(1);
-                let inner_rc = Arc::new(AtomicUsize::new(1));
+                let inner_rc = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(1));
 
                 let mut self_actor = Self { sender, inner_rc: inner_rc.clone() };
                 actor_impl.self_actor = Some(self_actor.clone());
@@ -227,7 +227,7 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
         impl #all_generics std::clone::Clone for #actor_ty #all_generic_tys
         {
             fn clone(&self) -> Self {
-                self.inner_rc.clone().fetch_add(1, Ordering::SeqCst);
+                self.inner_rc.clone().fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 Self {
                     sender: self.sender.clone(),
                     inner_rc: self.inner_rc.clone(),
@@ -238,13 +238,13 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
         impl #all_generics Drop for #actor_ty #all_generic_tys
         {
             fn drop(&mut self) {
-                self.inner_rc.clone().fetch_sub(1, Ordering::SeqCst);
+                self.inner_rc.clone().fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
             }
         }
 
     };
 
-    println!("{}", result);
+    // println!("{}", result);
 
     result.into()
 }
