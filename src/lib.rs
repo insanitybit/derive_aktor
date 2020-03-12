@@ -94,7 +94,7 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
                         if let Err(e) = sender.send(msg).await {
                             panic!("Receiver has failed with {}, propagating error. #ident", e)
                         }
-
+                        self.queue_len.clone().fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     }
                 );
 
@@ -180,7 +180,7 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
             }
 
             fn close(&mut self) {
-                self.self_actor = None;
+                // self.self_actor = None;
             }
         }
 
@@ -188,6 +188,7 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
         pub struct #actor_ty #all_generics {
             sender: Sender<#message_ty #all_generic_tys>,
             inner_rc: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+            queue_len: std::sync::Arc<std::sync::atomic::AtomicUsize>,
         }
 
         // Actor Impl block
@@ -195,8 +196,14 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
             pub async fn new (mut actor_impl: #self_ty) -> (Self, tokio::task::JoinHandle<()>) {
                 let (sender, receiver) = channel(1);
                 let inner_rc = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(1));
+                let queue_len = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
-                let mut self_actor = Self { sender, inner_rc: inner_rc.clone() };
+                let mut self_actor = Self {
+                  sender,
+                  inner_rc: inner_rc.clone(),
+                  queue_len: queue_len.clone()
+                };
+
                 actor_impl.self_actor = Some(self_actor.clone());
 
                 let handle = tokio::task::spawn(
@@ -205,6 +212,7 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
                             actor_impl,
                             receiver,
                             inner_rc,
+                            queue_len
                         )
                     )
                 );
@@ -212,7 +220,6 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
                 (self_actor, handle)
             }
              pub async fn release (self) {
-
                  let msg = #message_ty :: release;
                  let mut sender = self.sender.clone();
                  if let Err(e) = sender.send(msg).await {
@@ -231,6 +238,7 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
                 Self {
                     sender: self.sender.clone(),
                     inner_rc: self.inner_rc.clone(),
+                    queue_len: self.queue_len.clone(),
                 }
             }
         }
