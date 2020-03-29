@@ -11,11 +11,12 @@ proc-macro = true
 
 [dependencies]
 
-
 quote = "1.0"
 futures = "0.3"
 async-trait = "0.1"
-aktors = "0.2.4"
+aktors = "0.2.5"
+
+uuid = {version="0.8.1", features=["v4"]}
 
 [dependencies.tokio]
 version = "0.2"
