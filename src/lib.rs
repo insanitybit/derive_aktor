@@ -77,10 +77,9 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
 
                             args.extend(quote!(#arg_name ,));
                             arg_and_tys.extend(quote!(#arg_name : #arg_ty, ));
-
                         }
                         _ => {
-                            continue
+                            continue;
                         }
                     }
                 }
@@ -90,11 +89,27 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
                     pub async fn #ident (&self, #arg_and_tys) {
 
                         let msg = #message_ty :: #ident { #args };
+
                         let mut sender = self.sender.clone();
-                        if let Err(e) = sender.send(msg).await {
-                            panic!("Receiver has failed with {}, propagating error. #ident", e)
-                        }
-                        self.queue_len.clone().fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+                        let queue_len = self.queue_len.clone();
+
+                        queue_len.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        tokio::task::spawn(
+                             async move {
+                                if let Err(e) = sender.send(msg).await {
+                                    panic!(
+                                        concat!(
+                                            "Receiver has failed with {}, propagating error. ",
+                                            stringify!(#actor_ty),
+                                            ".",
+                                            stringify!(#ident)
+                                        ),
+                                        e
+                                    )
+                                }
+                            }
+                        );
                     }
                 );
 
@@ -119,10 +134,9 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
                             let arg_name = arg.pat;
 
                             args.extend(quote!(#arg_name, ));
-
                         }
                         _ => {
-                            continue
+                            continue;
                         }
                     }
                 }
@@ -179,8 +193,12 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
                 };
             }
 
+            fn get_actor_name(&self) -> &str {
+                &self.self_actor.as_ref().unwrap().actor_name
+            }
+
             fn close(&mut self) {
-                // self.self_actor = None;
+                self.self_actor = None;
             }
         }
 
@@ -189,6 +207,9 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
             sender: Sender<#message_ty #all_generic_tys>,
             inner_rc: std::sync::Arc<std::sync::atomic::AtomicUsize>,
             queue_len: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+            actor_name: String,
+            actor_uuid: uuid::Uuid,
+            actor_num: usize,
         }
 
         // Actor Impl block
@@ -198,13 +219,25 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
                 let inner_rc = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(1));
                 let queue_len = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
-                let mut self_actor = Self {
+                let actor_uuid = uuid::Uuid::new_v4();
+                let actor_name = format!(
+                    "{} {} {}",
+                     stringify!(#actor_ty),
+                     actor_uuid,
+                     0,
+                );
+                let inner_actor = Self {
                   sender,
                   inner_rc: inner_rc.clone(),
-                  queue_len: queue_len.clone()
+                  queue_len: queue_len.clone(),
+                  actor_name,
+                  actor_uuid,
+                  actor_num: 0,
                 };
 
-                actor_impl.self_actor = Some(self_actor.clone());
+                let self_actor = inner_actor.clone();
+
+                actor_impl.self_actor = Some(inner_actor);
 
                 let handle = tokio::task::spawn(
                     aktors::actor::route_wrapper(
@@ -222,9 +255,15 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
              pub async fn release (self) {
                  let msg = #message_ty :: release;
                  let mut sender = self.sender.clone();
-                 if let Err(e) = sender.send(msg).await {
-                     panic!("Receiver has failed with {}, propagating error. release", e)
-                 }
+                 let queue_len = self.queue_len.clone();
+
+                 queue_len.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+                 tokio::task::spawn(
+                     async move {
+                         sender.send(msg).await;
+                     }
+                 );
             }
 
             #actor_methods
@@ -235,10 +274,19 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
         {
             fn clone(&self) -> Self {
                 self.inner_rc.clone().fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
                 Self {
                     sender: self.sender.clone(),
                     inner_rc: self.inner_rc.clone(),
                     queue_len: self.queue_len.clone(),
+                    actor_name: format!(
+                        "{} {} {}",
+                         stringify!(#actor_ty),
+                         self.actor_uuid,
+                         self.actor_num + 1,
+                     ),
+                     actor_uuid: self.actor_uuid,
+                     actor_num: self.actor_num + 1,
                 }
             }
         }
@@ -268,7 +316,6 @@ fn gen_message_variants(items: Vec<ImplItem>) -> impl quote::ToTokens {
     for item in items {
         if let ImplItem::Method(method) = item {
             if let Visibility::Public(vis) = method.vis {
-
                 let ident = method.sig.ident;
 
                 let mut args = quote![];
@@ -277,7 +324,7 @@ fn gen_message_variants(items: Vec<ImplItem>) -> impl quote::ToTokens {
                     let arg: FnArg = arg;
                     match arg {
                         FnArg::Receiver(_) => {
-                            continue
+                            continue;
                         }
                         arg => args.extend(quote!(#arg, ))
                     }
@@ -299,7 +346,7 @@ fn gen_message_variants(items: Vec<ImplItem>) -> impl quote::ToTokens {
     message_variants
 }
 
-fn all_generics(items: Vec<ImplItem>, item_impl: syn::ItemImpl) -> impl quote:: ToTokens {
+fn all_generics(items: Vec<ImplItem>, item_impl: syn::ItemImpl) -> impl quote::ToTokens {
     let impl_generics = item_impl.generics;
 
     let mut all_generics = impl_generics.clone();
@@ -325,7 +372,7 @@ fn all_generics(items: Vec<ImplItem>, item_impl: syn::ItemImpl) -> impl quote:: 
 }
 
 
-fn all_generic_tys(items: Vec<ImplItem>, item_impl: syn::ItemImpl) -> impl quote:: ToTokens {
+fn all_generic_tys(items: Vec<ImplItem>, item_impl: syn::ItemImpl) -> impl quote::ToTokens {
     let impl_generics = item_impl.generics;
 
     let mut all_generics = impl_generics.clone();
@@ -350,13 +397,13 @@ fn all_generic_tys(items: Vec<ImplItem>, item_impl: syn::ItemImpl) -> impl quote
     all_generics
 }
 
-fn all_generic_tys_tuple(items: Vec<ImplItem>, item_impl: syn::ItemImpl) -> impl quote:: ToTokens {
+fn all_generic_tys_tuple(items: Vec<ImplItem>, item_impl: syn::ItemImpl) -> impl quote::ToTokens {
     let impl_generics = item_impl.generics;
 
     let mut all_generics = impl_generics.clone();
     let mut tuple_type: syn::TypeTuple = syn::TypeTuple {
         paren_token: Default::default(),
-        elems: Default::default()
+        elems: Default::default(),
     };
 
     for item in items {
@@ -389,10 +436,9 @@ fn all_generic_tys_tuple(items: Vec<ImplItem>, item_impl: syn::ItemImpl) -> impl
 }
 
 
-fn method_generics(items: Vec<ImplItem>) -> impl quote:: ToTokens {
+fn method_generics(items: Vec<ImplItem>) -> impl quote::ToTokens {
     let mut generic_types = quote!();
     for item in items {
-
         if let ImplItem::Method(method) = item {
             if let Visibility::Public(vis) = method.vis {
                 let generics = method.sig.generics;
@@ -407,10 +453,9 @@ fn method_generics(items: Vec<ImplItem>) -> impl quote:: ToTokens {
 }
 
 
-fn method_generic_tys(items: Vec<ImplItem>) -> impl quote:: ToTokens {
+fn method_generic_tys(items: Vec<ImplItem>) -> impl quote::ToTokens {
     let mut generic_types = quote!();
     for item in items {
-
         if let ImplItem::Method(method) = item {
             if let Visibility::Public(vis) = method.vis {
                 let mut generics = method.sig.generics;
