@@ -86,7 +86,10 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
 
 
                 let actor_method = quote!(
+
+                    #[tracing::instrument(skip(#args))]
                     pub async fn #ident (&self, #arg_and_tys) {
+                        tracing::trace!("{}.{}", stringify!(#actor_ty), stringify!(#ident));
 
                         let msg = #message_ty :: #ident { #args };
 
@@ -153,7 +156,6 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
                     )
                 };
 
-
                 route_arms.extend(arm);
             }
         }
@@ -169,17 +171,6 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
         #[allow(non_camel_case_types)]
         pub enum #message_ty #all_generics {
             #message_variants
-            release,
-        }
-
-        impl #all_generics aktors::actor::Message for #message_ty #all_generic_tys {
-            fn is_release(&self) -> bool {
-                if let Self :: release = self {
-                    true
-                } else {
-                    false
-                }
-            }
         }
 
         // Actor route_msg impl
@@ -189,7 +180,6 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
             async fn route_message(&mut self, message: #message_ty #all_generic_tys ) {
                 match message {
                     #route_arms
-                    #message_ty :: release => (),
                 };
             }
 
@@ -252,22 +242,18 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
 
                 (self_actor, handle)
             }
-             pub async fn release (self) {
-                 let msg = #message_ty :: release;
-                 let mut sender = self.sender.clone();
-                 let queue_len = self.queue_len.clone();
-
-                 queue_len.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-
-                 tokio::task::spawn(
-                     async move {
-                         sender.send(msg).await;
-                     }
-                 );
-            }
 
             #actor_methods
 
+        }
+
+        impl #all_generics std::fmt::Debug for #actor_ty #all_generic_tys
+        {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.debug_struct(stringify!(#actor_ty))
+                 .field("actor_name", &self.actor_name)
+                 .finish()
+            }
         }
 
         impl #all_generics std::clone::Clone for #actor_ty #all_generic_tys

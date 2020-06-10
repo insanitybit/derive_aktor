@@ -11,19 +11,20 @@ use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 use async_trait::async_trait;
 use derive_aktor::derive_actor;
-
+use tracing::info;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-
+use std::fmt::Debug;
+use std::time::Duration;
 
 pub struct KeyValueStore<U>
-    where U: Hash + Eq + Send + 'static
+    where U: Hash + Debug + Eq + Send + 'static
 {
     inner_store: HashMap<U, String>,
     self_actor: Option<KeyValueStoreActor<U>>,
 }
 
-impl<U: Hash + Eq + Send + 'static> KeyValueStore<U> {
+impl<U: Hash + Debug + Eq + Send + 'static> KeyValueStore<U> {
     pub fn new() -> Self {
         Self {
             inner_store: HashMap::new(),
@@ -32,14 +33,16 @@ impl<U: Hash + Eq + Send + 'static> KeyValueStore<U> {
     }
 }
 #[derive_actor]
-impl<U: Hash + Eq + Send + 'static> KeyValueStore<U> {
+impl<U: Hash + Debug + Eq + Send + 'static> KeyValueStore<U> {
+    #[tracing::instrument(skip(self, key, f))]
     pub fn query(&self, key: U, f: Box<dyn Fn(Option<String>) + Send + 'static>) {
-        println!("query");
+        info!("query");
         f(self.inner_store.get(&key).map(String::from))
     }
 
+    #[tracing::instrument(skip(self, key, value))]
     pub fn set(&mut self, key: U, value: String) {
-        println!("set");
+        info!("set");
         self.inner_store.insert(key, value);
     }
 }
@@ -62,35 +65,46 @@ impl ApiWrapper {
 
 #[derive_actor]
 impl ApiWrapper {
+    #[tracing::instrument(skip(self, key, f))]
     pub async fn query(&self, key: &'static str, f: Box<dyn Fn(Option<String>) + Send + 'static>) {
-        println!("query");
+        info!("query");
+        tokio::time::delay_for(Duration::from_secs(2)).await;
+
         self.inner_store.query(key, f).await;
     }
 
+    #[tracing::instrument(skip(self, key, value))]
     pub async fn set(&mut self, key: &'static str, value: String) {
-        println!("set");
-        self.inner_store.set(key, value);
+        info!("set");
+        self.inner_store.set(key, value).await;
     }
 }
 
 #[tokio::main]
+#[tracing::instrument]
 async fn main() {
+    // let filter = tracing_subscriber::EnvFilter::from_default_env();
+    tracing_subscriber::fmt()
+        // .json()
+        .with_max_level(tracing::Level::TRACE)
+        // .with_env_filter(filter)
+        .init();
 
     let (kv_store, kv_store_handle) = KeyValueStoreActor::new(KeyValueStore::new()).await;
 
-    kv_store.query("foo", Box::new(|value| println!("before {:?}", value))).await;
+    kv_store.query("foo", Box::new(|value| info!("before {:?}", value))).await;
     kv_store.set("foo", "bar".to_owned()).await;
-    kv_store.query("foo", Box::new(|value| println!("after {:?}", value))).await;
-
+    kv_store.query("foo", Box::new(|value| info!("after {:?}", value))).await;
 
     let (api, api_handle) = ApiWrapperActor::new(ApiWrapper::new(kv_store.clone())).await;
 
-    api.query("baz", Box::new(|value| println!("api.baz {:?}", value))).await;
-    api.query("foo", Box::new(|value| println!("api.foo {:?}", value))).await;
+    api.query("baz", Box::new(|value| info!("api.baz {:?}", value))).await;
+    api.query("foo", Box::new(|value| info!("api.foo {:?}", value))).await;
 
-    drop(kv_store);
     drop(api);
-
-    kv_store_handle.await;
+    drop(kv_store);
     api_handle.await;
+    kv_store_handle.await;
+    info!("Done");
+    dbg!("done");
 }
