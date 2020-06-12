@@ -101,10 +101,10 @@ async fn main() {
     api.query("baz", Box::new(|value| info!("api.baz {:?}", value))).await;
     api.query("foo", Box::new(|value| info!("api.foo {:?}", value))).await;
 
-    drop(api);
-    drop(kv_store);
-    api_handle.await;
-    kv_store_handle.await;
+    // drop(api);
+    // drop(kv_store);
+    // api_handle.await;
+    // kv_store_handle.await;
     info!("Done");
     dbg!("done");
 }

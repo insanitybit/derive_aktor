@@ -65,17 +65,84 @@ async fn main() {
 
 ```
 
-### Implementation
+## Example - Actor Communication
+```rust
 
-Every actor is a spawned tokio task, with a channel that's polled in a loop. Messages are passed in via
-the generated API on the Actor, routed through the channel, destructured, and routed to your underlying
-struct's methods.
+struct Logger {}
 
-Your struct is also provided with a `self_actor` field (it must be of type Option<ActorType>), which you can
-use to send your struct messages from within its own impl.
+#[derive_actor]
+impl Logger {
+    pub fn log(&self, data: String) {info!("{}", data)}
+}
+
+
+
+struct Simple{}
+
+#[derive_actor]
+impl Simple {
+    pub fn takes_actor(&self, log_actor: LoggerActor) {
+        info!("Logging up here");
+        log_actor.log("and logging over here".to_owned()).await;
+    }
+}
+
+#[tokio::main]
+async fn main() {
+
+    let (logger, l_handle) = LoggerActor::new(Logger{}).await;
+    let (simple, s_handle) = SimpleActor::new(Simple{}).await;
+
+    simple.takes_actor(logger.clone());
+    
+    drop(logger);
+    drop(simple);
+
+    l_handle.await;
+    s_handle.await;  // you could also join!(l_handle, s_handle);
+}
+```
+
+## What is an Actor?
+Actors are a concurrency primitive, similar to threads, that you communicate with through message passing.
+
+
+## Implementation
+
+### Terms
+* Actor - This is the generated Actor struct
+* ActorImpl - This is the struct you write, which has the impl
+
+
+### Actor
+The Actor is essentially just a wrapper around an mpsc Sender. The Actor provides an API based on the `impl`
+block that you attach the `derive_actor` macro to.
+
+For example,
+
+```rust
+#[derive_actor]
+impl MyStruct {
+    pub fn my_method(&mut self) {}
+}
+``` 
+
+would generate an Actor:
+
+```rust
+struct MyStructActor {
+    // ..
+}
+
+impl MyStructActor {
+    // ...
+    async pub fn my_method(&self) {
+      // package the message, place it on the internal queue, pass it along
+    }
+}
+```
 
 ### State
-
 I'm not great with proc macros, so contributions welcome. Here are a few open issues:
 
 [] The generics on the impl block must not use a where clause
