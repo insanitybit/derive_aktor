@@ -142,6 +142,20 @@ impl MyStructActor {
 }
 ```
 
+### Actor Lifecycle Management
+
+Actors are internally reference counted.
+
+An Actor is freed when:
+* The Actor is only referenced by itself
+* The Actor has no messages in its queue
+
+Because Rust lacks an async drop, this does mean that you'll have to explicitly drop the actor in some cases.
+
+Further, in order to ensure that an actor completely handles all messages before your program terminates,
+actor construction returns a `handle`, which you can await. This is similar to a thread API. If you don't
+need to rely on the actor completing, or signal completion elsewhere, you can drop the handle.
+
 ### State
 I'm not great with proc macros, so contributions welcome. Here are a few open issues:
 
