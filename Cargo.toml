@@ -1,10 +1,11 @@
 [package]
 name = "derive-aktor"
-version = "0.1.4"
+version = "0.1.5"
 authors = ["insanitybit <insanitybit@gmail.com>"]
 edition = "2018"
 description = "Create actors in rust with a derive macro"
 license = "MIT"
+readme = "README.md"
 
 [lib]
 proc-macro = true

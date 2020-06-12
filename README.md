@@ -1,13 +1,12 @@
 # derive_aktor
 A macro to generate Rust actors
 
-This library is in progress, there may be breaking changes.
+`derive_aktor` exports a `derive_actor` macro. This macro can take the impl of a struct and generate
+an actor for it, where the actor has a nomal, typed API roughly identical to that of your impl.
 
-`derive_aktor` provides a macro that turns your normal synchronous rust code into actor oriented async code, with
-just a line of code. You can think of actors sort of like Queues that hold state and, in the case of this library,
-provide a richer API than just `send` and `recv`.
+This makes it easy to write typed, nominal, asynchronous APIs.
 
-Actors can also have generic methods or state.
+## Example
 
 Here's a simple example of a "KeyValueStore". We can interact with it asynchronously,
 share it across threads, 
@@ -50,10 +49,29 @@ async fn main() {
     kv_store.set("foo", "bar".to_owned()).await;
     kv_store.query("foo", Box::new(|value| println!("after {:?}", value))).await;
 
-    // Equivalent to 'drop', but necessary if we had never used 'kv_store'
-    kv_store.release();
+    // We must drop any references to kv_store before we await the handle, or it will leak!
+
+    drop(kv_store);
     handle.await;
 }
 
 ```
 
+### Implementation
+
+Every actor is a spawned tokio task, with a channel that's polled in a loop. Messages are passed in via
+the generated API on the Actor, routed through the channel, destructured, and routed to your underlying
+struct's methods.
+
+Your struct is also provided with a `self_actor` field (it must be of type Option<ActorType>), which you can
+use to send your struct messages from within its own impl.
+
+### State
+
+I'm not great with proc macros, so contributions welcome. Here are a few open issues:
+
+[] The generics on the impl block must not use a where clause
+[] Generics on the Actor are the sum of all generics that appear in your actor struct *and* method, which
+   is unnecessary. It would be possible to generate an Actor that only lifts the generics that actually
+   correspond to method arguments.
+[] Even if you never reference your self_actor it's still there, which is unnecessary.

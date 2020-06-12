@@ -98,21 +98,19 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
                         let queue_len = self.queue_len.clone();
 
                         queue_len.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                        tokio::task::spawn(
-                             async move {
-                                if let Err(e) = sender.send(msg).await {
-                                    panic!(
-                                        concat!(
-                                            "Receiver has failed with {}, propagating error. ",
-                                            stringify!(#actor_ty),
-                                            ".",
-                                            stringify!(#ident)
-                                        ),
-                                        e
-                                    )
-                                }
-                            }
-                        );
+
+                        if let Err(e) = sender.send(msg).await {
+                            panic!(
+                                concat!(
+                                    "Receiver has failed with {}, propagating error. ",
+                                    stringify!(#actor_ty),
+                                    ".",
+                                    stringify!(#ident)
+                                ),
+                                e
+                            )
+                        }
+
                     }
                 );
 
