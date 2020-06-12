@@ -6,6 +6,11 @@ an actor for it, where the actor has a nomal, typed API roughly identical to tha
 
 This makes it easy to write typed, nominal, asynchronous APIs.
 
+This is in contrast with many actor implementations that either:
+
+a) Don't enforce type safety of messages
+b) Expose a single API for communicating with the actor, like "send", and force you to construct the messages
+
 ## Example
 
 Here's a simple example of a "KeyValueStore". We can interact with it asynchronously,
@@ -26,6 +31,8 @@ impl<U: Hash + Eq + Send + 'static> KeyValueStore<U> {
         }
     }
 }
+
+// All methods in this block form our Actor's API
 #[derive_actor]
 impl<U: Hash + Eq + Send + 'static> KeyValueStore<U> {
     pub fn query(&self, key: U, f: Box<dyn Fn(Option<String>) + Send + 'static>) {
@@ -44,7 +51,8 @@ impl<U: Hash + Eq + Send + 'static> KeyValueStore<U> {
 async fn main() {
 
     let (kv_store, handle) = KeyValueStoreActor::new(KeyValueStore::new()).await;
-
+    
+    // We can use an async API that's typed and nominal
     kv_store.query("foo", Box::new(|value| println!("before {:?}", value))).await;
     kv_store.set("foo", "bar".to_owned()).await;
     kv_store.query("foo", Box::new(|value| println!("after {:?}", value))).await;
