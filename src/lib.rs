@@ -24,6 +24,7 @@ use syn::token::Comma;
 #[proc_macro_attribute]
 pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
 {
+    let on_error = args.clone().into_iter().find(|arg| &arg.to_string() == "on_error").is_some();
     let o_item = item.clone();
     let input: syn::ItemImpl = syn::parse_macro_input!(item as syn::ItemImpl);
     let o_input: syn::ItemImpl = syn::parse_macro_input!(o_item as syn::ItemImpl);
@@ -87,9 +88,9 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
 
                 let actor_method = quote!(
 
-                    #[tracing::instrument(skip(#args))]
+                    // #[tracing::instrument(skip(self, #args))]
                     pub async fn #ident (&self, #arg_and_tys) {
-                        tracing::trace!("{}.{}", stringify!(#actor_ty), stringify!(#ident));
+                        // tracing::trace!("{}.{}", stringify!(#actor_ty), stringify!(#ident));
 
                         let msg = #message_ty :: #ident { #args };
 
@@ -98,21 +99,36 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
                         let queue_len = self.queue_len.clone();
 
                         queue_len.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                        tokio::task::spawn(
-                             async move {
-                                if let Err(e) = sender.send(msg).await {
-                                    panic!(
-                                        concat!(
-                                            "Receiver has failed with {}, propagating error. ",
-                                            stringify!(#actor_ty),
-                                            ".",
-                                            stringify!(#ident)
-                                        ),
-                                        e
-                                    )
-                                }
+
+                        let task = async move {
+                            if let Err(e) = sender.send(msg)
+                            .await {
+                                panic!(
+                                    concat!(
+                                        "Receiver has failed with {}, propagating error. ",
+                                        stringify!(#actor_ty),
+                                        ".",
+                                        stringify!(#ident)
+                                    ),
+                                    e
+                                )
                             }
+                        };
+
+                        // let span = tracing::info_span!(
+                        //     concat!(
+                        //         stringify!(#actor_ty),
+                        //         ".",
+                        //         stringify!(#ident)
+                        //     )
+                        // );
+                        let handle = tokio::task::spawn(
+                            // tracing::Instrument::instrument(
+                                task,
+                            //     span
+                            // )
                         );
+
                     }
                 );
 
@@ -125,11 +141,10 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
 
     for item in items.clone() {
         if let ImplItem::Method(method) = item {
-            if let Visibility::Public(vis) = method.vis {
+            if let Visibility::Public(ref vis) = method.vis {
                 let ident = method.sig.ident;
 
                 let mut args = quote![];
-
                 for arg in method.sig.inputs {
                     let arg: FnArg = arg;
                     match arg {
@@ -147,12 +162,13 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
                 let arm = if method.sig.asyncness.is_some() {
                     quote!(
                     #message_ty :: #ident { #args }
-                        => self. #ident (#args) .await,
+                        => {self. #ident (#args) .await;},
                     )
                 } else {
                     quote!(
-                    #message_ty :: #ident { #args }
-                        => self. #ident (#args),
+                        #message_ty :: #ident { #args } => {
+                            self. #ident (#args);
+                        },
                     )
                 };
 
@@ -161,8 +177,31 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
         }
     }
 
-
-    // Generate generics for the enum
+    let route_msg = if on_error {
+        quote!{
+            async fn route_message(&mut self, message: #message_ty #all_generic_tys ) {
+                let route_f = async {
+                    match message {
+                        #route_arms
+                    };
+                };
+                let route_f = std::panic::AssertUnwindSafe(route_f);
+                let route_f = futures::FutureExt::catch_unwind(route_f);
+                let result = route_f.await;
+                // if Err(e) = result {
+                //     self.on_error(e);
+                // }
+            }
+        }
+    } else {
+        quote!{
+            async fn route_message(&mut self, message: #message_ty #all_generic_tys ) {
+                match message {
+                    #route_arms
+                };
+            }
+        }
+    };
 
     let result = quote! {
         #o_input
@@ -177,11 +216,8 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
         #[async_trait]
         impl #all_generics aktors::actor::Actor < #message_ty #all_generic_tys > for #self_ty
         {
-            async fn route_message(&mut self, message: #message_ty #all_generic_tys ) {
-                match message {
-                    #route_arms
-                };
-            }
+            // #[instrument(skip(self, message))]
+            #route_msg
 
             fn get_actor_name(&self) -> &str {
                 &self.self_actor.as_ref().unwrap().actor_name
@@ -229,15 +265,25 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
 
                 actor_impl.self_actor = Some(inner_actor);
 
-                let handle = tokio::task::spawn(
-                    aktors::actor::route_wrapper(
-                        aktors::actor::Router::new(
-                            actor_impl,
-                            receiver,
-                            inner_rc,
-                            queue_len
-                        )
+                // let span = tracing::info_span!(
+                //     concat!(
+                //         stringify!(#actor_ty),
+                //     )
+                // );
+                let task = aktors::actor::route_wrapper(
+                    aktors::actor::Router::new(
+                        actor_impl,
+                        receiver,
+                        inner_rc,
+                        queue_len
                     )
+                );
+
+                let handle = tokio::task::spawn(
+                    // tracing::Instrument::instrument(
+                        task,
+                        // span
+                    // )
                 );
 
                 (self_actor, handle)

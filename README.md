@@ -156,6 +156,13 @@ Further, in order to ensure that an actor completely handles all messages before
 actor construction returns a `handle`, which you can await. This is similar to a thread API. If you don't
 need to rely on the actor completing, or signal completion elsewhere, you can drop the handle.
 
+### Error Handling
+In the event that an ActorImpl panics, the error is currently *swallowed*.
+
+### Tracing
+Currently all actor methods are annotated with a tracing `instrument` annotation that will log the actor by its
+unique identifier. Note that very Actor gets a new identity, even a clone of an Actor has a unique identity.
+
 ### State
 I'm not great with proc macros, so contributions welcome. Here are a few open issues:
 
