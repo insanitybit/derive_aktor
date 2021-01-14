@@ -6,19 +6,16 @@ extern crate tokio;
 use std::collections::HashMap;
 
 use std::hash::Hash;
-use tokio::runtime::Runtime;
-use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::mpsc::{channel, Sender};
 
 use async_trait::async_trait;
 use derive_aktor::derive_actor;
-use tracing::info;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::fmt::Debug;
-use std::time::Duration;
+use tracing::info;
 
 pub struct KeyValueStore<U>
-    where U: Hash + Debug + Eq + Send + Sync + 'static
+where
+    U: Hash + Debug + Eq + Send + Sync + 'static,
 {
     inner_store: HashMap<U, String>,
     self_actor: Option<KeyValueStoreActor<U>>,
@@ -50,16 +47,12 @@ impl<U: Hash + Debug + Eq + Send + Sync + 'static> KeyValueStore<U> {
         panic!(value);
     }
 
-    async fn on_error(
-        &mut self,
-        panicked_with: Box<dyn Any + Send>,
-    ) {
+    async fn on_error(&mut self, panicked_with: Box<dyn Any + Send>) {
         if let Some(e) = panicked_with.downcast_ref::<Box<dyn std::fmt::Debug>>() {
             dbg!(e);
         }
     }
 }
-
 
 // pub struct ApiWrapper
 // {
@@ -103,11 +96,15 @@ async fn main() {
     //     // .with_env_filter(filter)
     //     .init();
 
-    let (kv_store, kv_store_handle) = KeyValueStoreActor::new(KeyValueStore::new()).await;
+    let (kv_store, _kv_store_handle) = KeyValueStoreActor::new(KeyValueStore::new()).await;
 
-    kv_store.query("foo", Box::new(|value| info!("before {:?}", value))).await;
+    kv_store
+        .query("foo", Box::new(|value| info!("before {:?}", value)))
+        .await;
     kv_store.set("foo", "bar".to_owned()).await;
-    kv_store.query("foo", Box::new(|value| info!("after {:?}", value))).await;
+    kv_store
+        .query("foo", Box::new(|value| info!("after {:?}", value)))
+        .await;
     //
     // let (api, api_handle) = ApiWrapperActor::new(ApiWrapper::new(kv_store.clone())).await;
     //
@@ -122,14 +119,13 @@ async fn main() {
     dbg!("done");
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[derive(Default)]
     pub struct Ping {
-        self_actor: Option<PingActor>
+        self_actor: Option<PingActor>,
     }
 
     #[derive_actor]
@@ -142,7 +138,7 @@ mod tests {
 
     #[derive(Default)]
     pub struct Pong {
-        self_actor: Option<PongActor>
+        self_actor: Option<PongActor>,
     }
 
     #[derive_actor]
@@ -158,7 +154,6 @@ mod tests {
         drop(ping);
         ping_handle.await;
     }
-
 
     // Given two actors that temporarily cycle, ensure that they eventually terminate
     #[tokio::test]
