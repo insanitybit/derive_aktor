@@ -12,19 +12,21 @@ extern crate futures;
 
 use proc_macro::TokenStream;
 
-use quote::{TokenStreamExt, ToTokens};
-use syn::{ImplItem, Visibility, FnArg};
+use quote::{ToTokens, TokenStreamExt};
+use syn::{FnArg, ImplItem, Visibility};
 
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use syn::punctuated::Punctuated;
-use syn::GenericParam;
 use syn::token::Comma;
-
+use syn::GenericParam;
 
 #[proc_macro_attribute]
-pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
-{
-    let on_error = args.clone().into_iter().find(|arg| &arg.to_string() == "on_error").is_some();
+pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream {
+    let on_error = args
+        .clone()
+        .into_iter()
+        .find(|arg| &arg.to_string() == "on_error")
+        .is_some();
     let o_item = item.clone();
     let input: syn::ItemImpl = syn::parse_macro_input!(item as syn::ItemImpl);
     let o_input: syn::ItemImpl = syn::parse_macro_input!(o_item as syn::ItemImpl);
@@ -56,7 +58,7 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
     let all_generics = all_generics(items.clone(), o_input.clone());
     let all_generic_tys = all_generic_tys(items.clone(), o_input.clone());
 
-//    let generics_tuple = all_generic_tys_tuple(items.clone(), o_input.clone());
+    //    let generics_tuple = all_generic_tys_tuple(items.clone(), o_input.clone());
 
     let message_variants = gen_message_variants(items.clone());
 
@@ -84,7 +86,6 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
                         }
                     }
                 }
-
 
                 let actor_method = quote!(
 
@@ -178,7 +179,7 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
     }
 
     let route_msg = if on_error {
-        quote!{
+        quote! {
             async fn route_message(&mut self, message: #message_ty #all_generic_tys ) {
                 let route_f = async {
                     match message {
@@ -194,7 +195,7 @@ pub fn derive_actor(args: TokenStream, item: TokenStream) -> TokenStream
             }
         }
     } else {
-        quote!{
+        quote! {
             async fn route_message(&mut self, message: #message_ty #all_generic_tys ) {
                 match message {
                     #route_arms
@@ -358,17 +359,15 @@ fn gen_message_variants(items: Vec<ImplItem>) -> impl quote::ToTokens {
                         FnArg::Receiver(_) => {
                             continue;
                         }
-                        arg => args.extend(quote!(#arg, ))
+                        arg => args.extend(quote!(#arg, )),
                     }
                 }
-
 
                 let variant = quote!(
                     #ident {
                         #args
                     },
                 );
-
 
                 message_variants.extend(variant);
             }
@@ -402,7 +401,6 @@ fn all_generics(items: Vec<ImplItem>, item_impl: syn::ItemImpl) -> impl quote::T
 
     all_generics
 }
-
 
 fn all_generic_tys(items: Vec<ImplItem>, item_impl: syn::ItemImpl) -> impl quote::ToTokens {
     let impl_generics = item_impl.generics;
@@ -460,13 +458,11 @@ fn all_generic_tys_tuple(items: Vec<ImplItem>, item_impl: syn::ItemImpl) -> impl
         }
     }
 
-//    tuple_type.elems.push(syn::Type::Verbatim(quote!(#ty_generics)));
+    //    tuple_type.elems.push(syn::Type::Verbatim(quote!(#ty_generics)));
     let tuple_type = quote!(#tuple_type);
-
 
     tuple_type
 }
-
 
 fn method_generics(items: Vec<ImplItem>) -> impl quote::ToTokens {
     let mut generic_types = quote!();
@@ -484,7 +480,6 @@ fn method_generics(items: Vec<ImplItem>) -> impl quote::ToTokens {
     generic_types
 }
 
-
 fn method_generic_tys(items: Vec<ImplItem>) -> impl quote::ToTokens {
     let mut generic_types = quote!();
     for item in items {
@@ -497,7 +492,7 @@ fn method_generic_tys(items: Vec<ImplItem>) -> impl quote::ToTokens {
         }
     }
 
-//    println!("{}", generic_types.to_string());
+    //    println!("{}", generic_types.to_string());
 
     generic_types
 }

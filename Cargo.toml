@@ -1,6 +1,6 @@
 [package]
 name = "derive-aktor"
-version = "0.1.6"
+version = "0.2.0"
 authors = ["insanitybit <insanitybit@gmail.com>"]
 edition = "2018"
 description = "Create actors in rust with a derive macro"
@@ -15,17 +15,15 @@ proc-macro = true
 quote = "1.0"
 futures = "0.3"
 async-trait = "0.1"
-aktors = "0.2.7"
+aktors = "0"
 
-uuid = {version="0.8.1", features=["v4"]}
-tracing = "0.1.15"
-tracing-futures = "0.2.4"
-tracing-subscriber = "0.2.5"
+uuid = { version="0.8", features=["v4"] }
+tracing = "0"
 
 [dependencies.tokio]
 version = "0.2"
 features = ["full"]
 
 [dependencies.syn]
-version = "1.0.*"
+version = "1"
 features = ['full']
